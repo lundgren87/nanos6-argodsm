@@ -480,6 +480,12 @@ cluster_sources += \
 	src/scheduling/schedulers/cluster/ClusterLocalityScheduler.cpp \
 	src/scheduling/schedulers/cluster/ClusterRandomScheduler.cpp
 
+if USE_ARGODSM
+cluster_argo_sources = \
+	src/cluster/messenger/argo/ArgoMessenger.cpp
+endif
+cluster_sources += $(cluster_argo_sources)
+
 cluster_cppflags = \
 	-I$(srcdir)/src/cluster \
 	-I$(srcdir)/src/cluster/messages \
@@ -1350,6 +1356,8 @@ noinst_HEADERS += \
 	src/cluster/messages/MessageType.hpp \
 	src/cluster/messenger/DataTransfer.hpp \
 	src/cluster/messenger/Messenger.hpp \
+	src/cluster/messenger/argo/ArgoDataTransfer.hpp \
+	src/cluster/messenger/argo/ArgoMessenger.hpp \
 	src/cluster/messenger/mpi/MPIDataTransfer.hpp \
 	src/cluster/messenger/mpi/MPIMessenger.hpp \
 	src/cluster/offloading/RemoteTasksInfoMap.hpp \
@@ -1390,6 +1398,10 @@ dist_memory_sources = $(memory_default_sources) $(memory_debug_sources)
 common_libnanos6_cppflags = $(BOOST_CPPFLAGS) -DBOOST_ENABLE_ASSERT_DEBUG_HANDLER $(PTHREAD_CFLAGS) $(hwloc_CFLAGS) $(libnuma_CPPFLAGS) $(CUDA_CFLAGS) $(MPI_CXXFLAGS) $(memkind_CPPFLAGS) $(cluster_cppflags) $(workflow_cppflags) $(chronometers_cppflags) $(monitoring_cppflags) $(cpu_manager_cppflags) $(hardware_counters_cppflags) $(jemalloc_CPPFLAGS)
 common_libnanos6_ldflags = $(openacc_LIBS) $(AM_LDFLAGS) -version-info $(lib_current):$(lib_revision):$(lib_age) $(jemalloc_LIBS) $(PTHREAD_CFLAGS) $(PTHREAD_LIBS) $(LDFLAGS_NOUNDEFINED) $(hwloc_LIBS) $(libnuma_LIBS) $(DLOPEN_LIBS) $(CUDA_LIBS) $(MPI_CXXLDFLAGS) $(memkind_LIBS) $(cpu_manager_ldflags) $(hardware_counters_ldflags)
 
+if USE_ARGODSM
+common_libnanos6_cppflags += $(argodsm_CPPFLAGS)
+common_libnanos6_ldflags += $(argodsm_LIBS)
+endif
 
 # This is needed for debuggable spinlocks
 common_sources += $(introspection_sources)

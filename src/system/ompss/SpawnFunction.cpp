@@ -4,6 +4,9 @@
 	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
+#include <lowlevel/EnvironmentVariable.hpp>
+#include <argo/argo.hpp>
+
 #include <cassert>
 #include <map>
 #include <mutex>
@@ -118,6 +121,13 @@ void SpawnFunction::spawnFunction(
 
 		assert ((streamId == 0 && taskInfo->implementations[0].get_constraints == nullptr)
 			|| (streamId > 0 && taskInfo->implementations[0].get_constraints != nullptr));
+	}
+
+	// Ensure ArgoDSM coherence for child tasks by self-downgrading
+	// TODO: Ensure that cluster and argo is actually active
+	EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+	if(commType.getValue() == "argo"){
+		argo::backend::release();
 	}
 
 	// Register the new task info

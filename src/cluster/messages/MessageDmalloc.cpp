@@ -11,6 +11,10 @@
 #include <DistributionPolicy.hpp>
 #include <VirtualMemoryManagement.hpp>
 
+#include <argo/argo.hpp>
+#include "lowlevel/EnvironmentVariable.hpp"
+#include "system/RuntimeInfo.hpp"
+
 MessageDmalloc::MessageDmalloc(const ClusterNode *from, size_t numDimensions)
 	: Message(DMALLOC,
 		sizeof(DmallocMessageContent) + numDimensions * sizeof(size_t),
@@ -29,7 +33,19 @@ bool MessageDmalloc::handleMessage()
 	if (ClusterManager::isMasterNode()) {
 		/* The master node performs the allocation and communicates
 		 * the allocated address to all other nodes */
-		dptr = VirtualMemoryManagement::allocDistrib(size);
+
+		// Get communicator type
+		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+
+		// Allocate ArgoDSM memory if selected
+		if(commType.getValue() == "argo"){
+			printf("Allocating %zu ArgoDSM distributed memory.\n", size);
+			dptr = dynamic_alloc(size);
+		}else{
+			printf("Allocating %zu Nanos6 distributed memory.\n", size);
+			dptr = VirtualMemoryManagement::allocDistrib(size);
+		}
 
 		DataAccessRegion address(&dptr, sizeof(void *));
 

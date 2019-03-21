@@ -83,6 +83,8 @@ if test x"${ac_have_nanos6_mercurium}" = x"yes" ; then
 	NANOS6_MCXX="${NANOS6_MCXX} -std=c++03"
 fi
 
+AC_CHECK_ARGODSM
+
 # Checks for library functions.
 AC_CHECK_DLOPEN
 AC_CHECK_BACKTRACE
@@ -440,6 +442,16 @@ _AS_ECHO([])
 _AS_ECHO_N([   Execution Workflow feature enabled... ])
 if test x"${ac_use_workflow}" = x"yes" ; then
 	AC_MSG_RESULT([yes])
+else
+	AC_MSG_RESULT([no])
+fi
+
+AS_ECHO([])
+_AS_ECHO_N([   ArgoDSM is enabled... ])
+if test x"${ac_use_argodsm}" = x"yes" ; then
+	AC_MSG_RESULT([yes])
+	_AS_ECHO([   ArgoDSM CPPFLAGS... ${argodsm_CPPFLAGS}])
+	_AS_ECHO([   ArgoDSM CXXLDFLAGS... ${argodsm_LIBS}])
 else
 	AC_MSG_RESULT([no])
 fi

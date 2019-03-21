@@ -343,4 +343,74 @@ namespace ExecutionWorkflow {
 		releaseSuccessors();
 		delete this;
 	}
+
+	void ArgoAcquireStep::start()
+	{
+#ifdef argo_coherence_hpp
+                // If argo selective self invalidation is defined
+                selective_si(_dataAccess.getStartAddress(), _dataAccess.getSize());
+                //printf("Addr: %p \tsize: %d\n", 
+                //        _dataAccess.getStartAddress(),
+                //        _dataAccess.getSize()
+                //);
+#else
+                // If it is not defined, use node wide acquire instead
+                argo::backend::acquire();
+#endif
+
+		releaseSuccessors();
+		delete this;
+	}
+
+
+	void ArgoReleaseStep::releaseRegion(
+		DataAccessRegion const &region, MemoryPlace const *location
+	) {
+		Instrument::logMessage(
+			Instrument::ThreadInstrumentationContext::getCurrent(),
+			"releasing remote region:", region);
+		TaskOffloading::sendRemoteAccessRelease(_remoteTaskIdentifier,
+				_offloader, region, _type, _weak, location);
+		
+		if ((_bytesToRelease -= region.getSize()) == 0) {
+			delete this;
+		}
+	}
+
+        bool ArgoReleaseStep::checkDataRelease(DataAccess const *access)
+	{
+		bool releases = (access->getObjectType() == taskwait_type)
+			&& access->getOriginator()->isSpawned()
+			&& access->readSatisfied()
+			&& access->writeSatisfied();
+
+		Instrument::logMessage(
+			Instrument::ThreadInstrumentationContext::getCurrent(),
+			"Checking DataRelease access:",
+			access->getInstrumentationId(),
+			" object_type:", access->getObjectType(),
+			" spawned originator:", access->getOriginator()->isSpawned(),
+			" read:", access->readSatisfied(),
+			" write:", access->writeSatisfied(),
+			" releases:", releases);
+		
+		return releases;
+	}
+
+
+	void ArgoReleaseStep::start()
+	{
+		// TODO: Implement selective self downgrade.
+		argo::backend::release();
+
+		releaseSuccessors();
+	}
+
+        void ArgoReleaseStepLocal::start()
+        {
+                // TODO: Implement selective self downgrade.
+                argo::backend::release();
+
+                releaseSuccessors();
+        }
 };

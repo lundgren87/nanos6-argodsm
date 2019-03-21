@@ -16,6 +16,10 @@
 #include <MessageDmalloc.hpp>
 #include <VirtualMemoryManagement.hpp>
 
+#include <argo/argo.hpp>
+#include "lowlevel/EnvironmentVariable.hpp"
+#include "system/RuntimeInfo.hpp"
+
 namespace ClusterMemoryManagement {
 
 	void *dmalloc(
@@ -31,7 +35,18 @@ namespace ClusterMemoryManagement {
 		//! that we serialize the allocations across all cluster
 		//! nodes
 		if (isMaster) {
-			dptr = VirtualMemoryManagement::allocDistrib(size);
+			// Get communicator type
+			EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+			RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+
+			// Allocate ArgoDSM memory if selected
+			if(commType.getValue() == "argo"){
+				printf("Allocating %zu ArgoDSM distributed memory.\n", size);
+				dptr = dynamic_alloc(size);
+			}else{
+				printf("Allocating %zu Nanos6 distributed memory.\n", size);
+				dptr = VirtualMemoryManagement::allocDistrib(size);
+			}
 			if (dptr == nullptr) {
 				return nullptr;
 			}
@@ -117,6 +132,14 @@ namespace ClusterMemoryManagement {
 
 		//! We do not need to send any Messages here
 		if (!ClusterManager::inClusterMode()) {
+			// Get communicator type
+			EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+			RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+
+			// Free ArgoDSM memory if selected
+			if(commType.getValue() == "argo"){
+				dynamic_free(ptr);
+			}
 			//! Here we should deallocate the memory once we fix
 			//! the memory allocator API
 			return;
