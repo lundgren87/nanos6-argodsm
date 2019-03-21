@@ -20,6 +20,9 @@
 #include <InstrumentTaskWait.hpp>
 #include <Monitoring.hpp>
 
+#include <lowlevel/EnvironmentVariable.hpp>
+#include <argo/argo.hpp>
+
 
 void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
 {
@@ -79,6 +82,13 @@ void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
 	// This in combination with a release from the children makes their changes visible to this thread
 	std::atomic_thread_fence(std::memory_order_acquire);
 	
+        // Ensure ArgoDSM coherence by self-invalidating
+        //TODO Check if we are in cluster and using argo
+        EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+        if(commType.getValue() == "argo"){
+            argo::backend::acquire();
+        }
+
 	Instrument::exitTaskWait(currentTask->getInstrumentationTaskId());
 	
 	assert(currentTask->canBeWokenUp());

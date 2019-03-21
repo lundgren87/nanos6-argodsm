@@ -14,6 +14,10 @@
 #include <TaskOffloading.hpp>
 #include <VirtualMemoryManagement.hpp>
 
+#include <argo/argo.hpp>
+#include <argo/virtual_memory/virtual_memory.hpp>
+#include <argo/backend/mpi/coherence.hpp>
+
 class ComputePlace;
 class MemoryPlace;
 
@@ -172,6 +176,57 @@ namespace ExecutionWorkflow {
 		{
 		}
 	};
+
+	class ArgoAcquireStep : public Step {
+		DataAccessRegion _dataAccess;
+		
+	public:
+		ArgoAcquireStep(
+			DataAccessRegion const &dataAccess
+		) : Step(),
+			_dataAccess(dataAccess)
+		{
+		}
+
+		void start();
+	};
+
+        class ArgoReleaseStepLocal : public DataReleaseStep {
+            public:
+                // Inherit constructor
+                using DataReleaseStep::DataReleaseStep;
+
+                // Overload start with ArgoDSM functionality
+                void start();
+        };
+
+
+        class ArgoReleaseStep : public DataReleaseStep {
+		//! identifier of the remote task
+		void *_remoteTaskIdentifier;
+		
+		//! the cluster node we need to notify
+		ClusterNode const *_offloader;
+		
+	public:
+		ArgoReleaseStep(
+			TaskOffloading::ClusterTaskContext *context,
+			DataAccess *access
+		) : DataReleaseStep(access),
+			_remoteTaskIdentifier(context->getRemoteIdentifier()),
+			_offloader(context->getRemoteNode())
+		{
+			access->setDataReleaseStep(this);
+		}
+		
+		void releaseRegion(DataAccessRegion const &region,
+			MemoryPlace const *location);
+		
+		bool checkDataRelease(DataAccess const *access);
+		
+		void start();
+	};
+
 	
 	inline Step *clusterFetchData(
 		MemoryPlace const *source,
@@ -198,7 +253,7 @@ namespace ExecutionWorkflow {
 		if ((sourceType == nanos6_host_device)) {
 			return new Step();
 		}
-		
+
 		assert(source->getType() == nanos6_cluster_device);
 		DataAccessObjectType objectType = access->getObjectType();
 		DataAccessType type = access->getType();
@@ -238,7 +293,15 @@ namespace ExecutionWorkflow {
 			);
 		
 		if (needsTransfer) {
-			return new ClusterDataCopyStep(source, target, translation);
+                    // TODO: Use a better Argo detection technique.
+                    /* Check if memory belongs to ArgoDSM and perform an acquire in place of data copy. */
+                    if (access->getAccessRegion().getStartAddress() >= argo::virtual_memory::start_address() &&
+                            access->getAccessRegion().getStartAddress() < argo::virtual_memory::start_address() + argo::virtual_memory::size()
+                    ){
+                            return new ArgoAcquireStep(access->getAccessRegion());
+                    }else{
+                        return new ClusterDataCopyStep(source, target, translation);
+                    }
 		}
 		
 		return new Step();

@@ -403,6 +403,12 @@ cluster_sources += \
 	src/executors/workflow/cluster/ExecutionWorkflowCluster.cpp \
 	src/memory/directory/cluster/DistributionPolicy.cpp
 
+if USE_ARGODSM
+cluster_argo_sources = \
+	src/cluster/messenger/argo/ArgoMessenger.cpp
+endif
+cluster_sources += $(cluster_argo_sources)
+
 cluster_cppflags = \
 	-I$(srcdir)/src/cluster \
 	-I$(srcdir)/src/cluster/messages \
@@ -691,6 +697,8 @@ noinst_HEADERS = \
 	src/cluster/messages/MessageType.hpp \
 	src/cluster/messenger/DataTransfer.hpp \
 	src/cluster/messenger/Messenger.hpp \
+	src/cluster/messenger/argo/ArgoDataTransfer.hpp \
+	src/cluster/messenger/argo/ArgoMessenger.hpp \
 	src/cluster/messenger/mpi/MPIDataTransfer.hpp \
 	src/cluster/messenger/mpi/MPIMessenger.hpp \
 	src/cluster/null/ClusterManager.hpp \
@@ -1111,6 +1119,10 @@ EXTRA_DIST += \
 common_libnanos6_cppflags = $(BOOST_CPPFLAGS) -DBOOST_ENABLE_ASSERT_DEBUG_HANDLER $(PTHREAD_CFLAGS) $(hwloc_CFLAGS) $(libnuma_CPPFLAGS) $(CUDA_CFLAGS) $(MPI_CXXFLAGS) $(memkind_CPPFLAGS) $(cluster_cppflags) $(workflow_cppflags) $(chronometers_CPPFLAGS) $(monitoring_CPPFLAGS) $(hw_monitoring_CPPFLAGS)
 common_libnanos6_ldflags = $(AM_LDFLAGS) $(BOOST_LDFLAGS) -version-info $(lib_current):$(lib_revision):$(lib_age) $(PTHREAD_CFLAGS) $(PTHREAD_LIBS) $(LDFLAGS_NOUNDEFINED) $(hwloc_LIBS) $(libnuma_LIBS) $(DLOPEN_LIBS) $(CUDA_LIBS) $(MPI_CXXLDFLAGS) $(memkind_LIBS) $(hw_monitoring_LDFLAGS)
 
+if USE_ARGODSM
+common_libnanos6_cppflags += $(argodsm_CPPFLAGS)
+common_libnanos6_ldflags += $(argodsm_LIBS)
+endif
 
 # This is needed for debuggable spinlocks
 common_sources += $(introspection_sources)

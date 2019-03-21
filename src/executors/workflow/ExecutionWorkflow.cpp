@@ -135,6 +135,21 @@ namespace ExecutionWorkflow {
 		Task const *task,
 		DataAccess *access
 	) {
+		// TODO: Use a better Argo detection technique.
+		/* Check if memory belongs to ArgoDSM and perform a release. */
+		if (access->getAccessRegion().getStartAddress() >= argo::virtual_memory::start_address() &&
+			access->getAccessRegion().getStartAddress() < argo::virtual_memory::start_address() + argo::virtual_memory::size()
+		) {
+                        if(task->isRemote()) {
+			    return new ArgoReleaseStep(
+				    task->getClusterContext(),
+				    access
+			    );
+                        }else{
+                            return new ArgoReleaseStepLocal(access);
+                        }
+		}
+
 		if (task->isRemote()) {
 			return new ClusterDataReleaseStep(
 					task->getClusterContext(), access);
