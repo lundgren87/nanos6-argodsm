@@ -117,6 +117,9 @@ namespace ClusterMemoryManagement {
 	{
 		assert(ptr != nullptr);
 		assert(size > 0);
+		// Get communicator type
+		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
 
 		DataAccessRegion distributedRegion(ptr, size);
 
@@ -132,13 +135,10 @@ namespace ClusterMemoryManagement {
 
 		//! We do not need to send any Messages here
 		if (!ClusterManager::inClusterMode()) {
-			// Get communicator type
-			EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-			RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
-
-			// Free ArgoDSM memory if selected
+			// Free ArgoDSM memory if ArgoDSM is active
 			if(commType.getValue() == "argo"){
 				dynamic_free(ptr);
+				return;
 			}
 			//! Here we should deallocate the memory once we fix
 			//! the memory allocator API
@@ -165,6 +165,10 @@ namespace ClusterMemoryManagement {
 
 		ClusterManager::synchronizeAll();
 
+		// Free ArgoDSM memory if ArgoDSM is active
+		if(commType.getValue() == "argo"){
+			dynamic_free(ptr);
+		}
 		//! TODO: We need to fix the way we allocate distributed memory so that
 		//! we do allocate it from the MemoryAllocator instead of the
 		//! VirtualMemoryManagement layer, which is what we do now. The
@@ -175,25 +179,42 @@ namespace ClusterMemoryManagement {
 
 	void *lmalloc(size_t size)
 	{
-		// Register the lmalloc in the task's dependency system.
-		// This is needed for taskwait noflush, as a place to put the
-		// location information. Ideally we should register the whole local
-		// region all at once. At the moment the lmalloc and lfree have to
-		// be in the same task, which is a bit restrictive.
-		void *lptr = MemoryAllocator::alloc(size);
-		WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
-		Task *task = currentThread->getTask();
-		DataAccessRegion allocatedRegion(lptr, size);
-		DataAccessRegistration::registerLocalAccess(task, allocatedRegion, ClusterManager::getCurrentMemoryNode());
-		return lptr;
+		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+
+		// Allocate ArgoDSM memory if ArgoDSM is active
+		// TODO: Try to register this as local alloc in the future
+		if(commType.getValue() == "argo"){
+			printf("Allocating %zu ArgoDSM distributed memory (lmalloc).\n", size);
+			return dynamic_alloc(size);
+		}else{
+			// Register the lmalloc in the task's dependency system.
+			// This is needed for taskwait noflush, as a place to put the
+			// location information. Ideally we should register the whole local
+			// region all at once. At the moment the lmalloc and lfree have to
+			// be in the same task, which is a bit restrictive.
+			void *lptr = MemoryAllocator::alloc(size);
+			WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
+			Task *task = currentThread->getTask();
+			DataAccessRegion allocatedRegion(lptr, size);
+			DataAccessRegistration::registerLocalAccess(task, allocatedRegion, ClusterManager::getCurrentMemoryNode());
+			return lptr;
+		}
 	}
 
 	void lfree(void *ptr, size_t size)
 	{
-		DataAccessRegion allocatedRegion(ptr, size);
-		WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
-		Task *task = currentThread->getTask();
-		DataAccessRegistration::unregisterLocalAccess(task, allocatedRegion);
-		MemoryAllocator::free(ptr, size);
+		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		// Free ArgoDSM memory if selected
+		if(commType.getValue() == "argo"){
+			dynamic_free(ptr);
+		}else{
+			DataAccessRegion allocatedRegion(ptr, size);
+			WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
+			Task *task = currentThread->getTask();
+			DataAccessRegistration::unregisterLocalAccess(task, allocatedRegion);
+			MemoryAllocator::free(ptr, size);
+		}
 	}
 }
