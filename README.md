@@ -27,11 +27,16 @@ In addition to the build requirements, the following libraries and tools enable 
 1. [PAPI](https://icl.cs.utk.edu/papi/software/index.html)  to generate statistics that include hardware counters
 1. [CUDA](https://developer.nvidia.com/cuda-zone) to enable CUDA tasks
 1. [PQOS](https://github.com/intel/intel-cmt-cat) to generate real-time statistics of hardware counters
-
+1. [ArgoDSM](https://gitlab.itwm.fraunhofer.de/EPEEC/argodsm) to enable support for the ArgoDSM shared memory backend.
 
 ## Build procedure
 
 Nanos6 uses the standard GNU automake and libtool toolchain.
+
+**In order to build Nanos6-ArgoDSM, ensure that the current branch is cluster-argo.**
+```sh
+$ git checkout cluster-argo
+```
 When cloning from a repository, the building environment must be prepared through the following command:
 
 ```sh
@@ -50,6 +55,17 @@ $ make install
 
 where `INSTALLATION_PREFIX` is the directory into which to install Nanos6.
 
+**In order to build Nanos6-ArgoDSM with ArgoDSM support, the following minimal configuration is necessary.** `ARGODSM_INSTALL_PATH` must point to a working installation of ArgoDSM.
+```sh
+$ ./configure   --prefix=INSTALLATION_PREFIX                \
+                --enable-cluster                            \
+                --enable-execution-workflow                 \
+                --with-argodsm=ARGODSM_INSTALL_PATH         \
+                ...other options...
+$ make all check
+$ make install
+```
+
 The configure script accepts the following options:
 
 1. `--with-nanos6-mercurium=prefix` to specify the prefix of the Mercurium installation
@@ -63,6 +79,9 @@ The configure script accepts the following options:
 1. `--enable-monitoring` to enable monitoring and predictions of task/CPU/thread statistics
 1. `--enable-chrono-arch` to enable an architecture-based timer for the monitoring infrastructure
 1. `--enable-monitoring-hwevents` to enable monitoring of hardware counters (which must be paired with an appropriate library)
+1. `--enable-cluster` to enable OmpSs@cluster support
+1. `--enable-execution-workflow` to enable execution workflow (required for OmpSs@cluster support)
+1. `--with-argodsm=prefix` to enable support for the ArgoDSM shared memory backend
 
 The location of elfutils and hwloc is always retrieved through pkg-config.
 The location of PAPI can also be retrieved through pkg-config if it is not specified through the `--with-papi` parameter.
@@ -94,6 +113,16 @@ $ taskset -c 0-2,4 ./app
 ```
 
 would run `app` on cores 0, 1, 2 and 4.
+
+**In order to execute Nanos6-ArgoDSM applications with ArgoDSM support**, the following environment variables have to be set. `ARGO_DISTRIBUTED_MEMORY` dictates the amount of memory ArgoDSM will reserve on the system in bytes.
+```sh
+$ export NANOS6_COMMUNICATION=argo
+$ export ARGO_DISTRIBUTED_MEMORY=1073741824
+```
+Depending on the system configuration, it may also be necessary to disable *address space layout randomization* (ASLR). It is recommended to execute Nanos6-ArgoDSM applications through mpirun or mpiexec. In order to execute a Nanos6-ArgoDSM application compiled with Mercurium on four nodes with ASLR disabled, execute the following:
+```
+$ setarch $(uname -m) -R mpirun -n 4 ./application
+```
 
 
 ## Tracing, debugging and other options
