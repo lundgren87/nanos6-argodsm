@@ -30,11 +30,16 @@ In addition to the build requirements, the following libraries and tools enable 
 1. [DLB](https://pm.bsc.es/dlb) to enable dynamic management and sharing of computing resources
 1. [jemalloc](https://github.com/jemalloc/jemalloc) to use jemalloc as the default memory allocator, providing better performance than the default glibc implementation. Jemalloc must be compiled with `--enable-stats` and `--with-jemalloc-prefix=nanos6_je_` to link with the runtime
 1. [PAPI](http://icl.utk.edu/papi/software/) >= 5.6.0
-
+1. [ArgoDSM](https://gitlab.itwm.fraunhofer.de/EPEEC/argodsm) to enable support for the ArgoDSM shared memory backend.
 
 ## Build procedure
 
 Nanos6 uses the standard GNU automake and libtool toolchain.
+
+**In order to build Nanos6-ArgoDSM, ensure that the current branch is cluster-argo.**
+```sh
+$ git checkout cluster-argo
+```
 When cloning from a repository, the building environment must be prepared through the following command:
 
 ```sh
@@ -53,6 +58,17 @@ $ make install
 
 where `INSTALLATION_PREFIX` is the directory into which to install Nanos6.
 
+**In order to build Nanos6-ArgoDSM with ArgoDSM support, the following minimal configuration is necessary.** `ARGODSM_INSTALL_PATH` must point to a working installation of ArgoDSM.
+```sh
+$ ./configure   --prefix=INSTALLATION_PREFIX                \
+                --enable-cluster                            \
+                --enable-execution-workflow                 \
+                --with-argodsm=ARGODSM_INSTALL_PATH         \
+                ...other options...
+$ make all check
+$ make install
+```
+
 The configure script accepts the following options:
 
 1. `--with-nanos6-mercurium=prefix` to specify the prefix of the Mercurium installation
@@ -68,6 +84,8 @@ The configure script accepts the following options:
 1. `--enable-openacc` to enable support for OpenACC tasks; requires PGI compilers
 1. `--with-pgi=prefix` to specify the prefix of the PGI or NVIDIA HPC-SDK compilers installation, in case they are not in `$PATH`
 1. `--enable-chrono-arch` to enable an architecture-based timer for the monitoring infrastructure
+1. `--enable-cluster` to enable OmpSs@cluster support
+1. `--with-argodsm=prefix` to enable support for the ArgoDSM shared memory backend
 
 The location of elfutils and hwloc is always retrieved through pkg-config.
 If they are installed in non-standard locations, pkg-config can be told where to find them through the `PKG_CONFIG_PATH` environment variable.
@@ -120,6 +138,18 @@ The Nanos6 runtime will only interpret the first configuration file found accord
 Alternatively, if configuration has to be changed programatically and creating new files is not practical, configuration variables can be overriden using the `NANOS6_CONFIG_OVERRIDE` environment variable.
 The contents of this variable have to be in the format `key1=value1,key2=value2,key3=value3,...`.
 For example, to change the dependency implementation and CTF instrumentation: `NANOS6_CONFIG_OVERRIDE="version.dependencies=discrete,version.instrument=ctf" ./ompss-program`.
+
+### ArgoDSM runtime settings
+
+**In order to execute Nanos6-ArgoDSM applications with ArgoDSM support**, the following environment variables have to be set. `ARGO_DISTRIBUTED_MEMORY` dictates the amount of memory ArgoDSM will reserve on the system in bytes.
+```sh
+$ export NANOS6_COMMUNICATION=argo
+$ export ARGO_DISTRIBUTED_MEMORY=1073741824
+```
+Depending on the system configuration, it may also be necessary to disable *address space layout randomization* (ASLR). It is recommended to execute Nanos6-ArgoDSM applications through mpirun or mpiexec. In order to execute a Nanos6-ArgoDSM application compiled with Mercurium on four nodes with ASLR disabled, execute the following:
+```
+$ setarch $(uname -m) -R mpirun -n 4 ./application
+```
 
 ### Scheduling options
 
