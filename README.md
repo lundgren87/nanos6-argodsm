@@ -27,7 +27,7 @@ In addition to the build requirements, the following libraries and tools enable 
 1. [PAPI](https://icl.cs.utk.edu/papi/software/index.html)  to generate statistics that include hardware counters
 1. [CUDA](https://developer.nvidia.com/cuda-zone) to enable CUDA tasks
 1. [PQOS](https://github.com/intel/intel-cmt-cat) to generate real-time statistics of hardware counters
-1. [ArgoDSM](https://gitlab.itwm.fraunhofer.de/EPEEC/argodsm) to enable support for the ArgoDSM shared memory backend.
+1. [ArgoDSM](https://github.com/epeec/ArgoDSM) to enable support for the ArgoDSM shared memory backend.
 
 ## Build procedure
 
