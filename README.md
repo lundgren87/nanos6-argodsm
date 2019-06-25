@@ -1,8 +1,19 @@
-# Nanos6 Runtime
+# Nanos6-ArgoDSM Runtime
 
-Nanos6 is a runtime that implements the OmpSs-2 parallel programming model,
-developed by the [*Programming Models group*](https://pm.bsc.es/)
-at the [**Barcelona Supercomputing Center**](http://www.bsc.es/).
+Nanos6-ArgoDSM is a fork of the Nanos6 runtime (which implements the OmpSs-2 parallel programming model).
+It enables ArgoDSM as a shared memory backend for communication in a cluster environment.
+
+By default, Nanos6 uses two-sided MPI communication when running in a cluster environment.
+When enabled in this version of Nanos6, ArgoDSM replaces the communication of application data
+with its cache-coherent, one-sided communication model.
+
+The integration of ArgoDSM is almost completely transparent to application developers.
+No change in code is required, provided the program is functional under the OmpSs-2 programming model,
+only a few environment variable have to be set to enable the use of ArgoDSM.
+
+In its pre-release state, Nanos6-ArgoDSM should be use with a co-developed version of ArgoDSM
+(see *Optional libraries and tools*)
+that provides new features to support use cases made possible by the integration with Nanos6.
 
 ## Installation
 
