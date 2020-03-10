@@ -132,29 +132,32 @@ namespace ExecutionWorkflow {
 	}
 	
 	Step *WorkflowBase::createDataReleaseStep(
-		Task const *task,
-		DataAccess *access
-	) {
+			Task const *task,
+			DataAccess *access
+			) {
 		// TODO: Use a better Argo detection technique.
-		/* Check if memory belongs to ArgoDSM and perform a release. */
-		if (access->getAccessRegion().getStartAddress() >= argo::virtual_memory::start_address() &&
-			access->getAccessRegion().getStartAddress() < argo::virtual_memory::start_address() + argo::virtual_memory::size()
-		) {
-                        if(task->isRemote()) {
-			    return new ArgoReleaseStep(
-				    task->getClusterContext(),
-				    access
-			    );
-                        }else{
-                            return new ArgoReleaseStepLocal(access);
-                        }
+		/* Check if memory belongs to ArgoDSM and launch relevant ArgoDSM step. */
+		if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
+				static_cast<char*>(argo::virtual_memory::start_address()) &&
+				static_cast<char*>(access->getAccessRegion().getStartAddress()) <
+				static_cast<char*>(argo::virtual_memory::start_address()) +
+				argo::virtual_memory::size()
+		   ) {
+			if(task->isRemote()) {
+				return new ArgoReleaseStep(
+						task->getClusterContext(),
+						access
+						);
+			}else{
+				return new ArgoReleaseStepLocal(access);
+			}
 		}
 
 		if (task->isRemote()) {
 			return new ClusterDataReleaseStep(
 					task->getClusterContext(), access);
 		}
-		
+
 		return new DataReleaseStep(access);
 	}
 	

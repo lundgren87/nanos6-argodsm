@@ -12,7 +12,6 @@
 #include "tasks/Task.hpp"
 
 #include <lowlevel/EnvironmentVariable.hpp>
-#include <argo/argo.hpp>
 
 #include <cassert>
 #include <map>
@@ -94,13 +93,6 @@ void nanos6_spawn_function(void (*function)(void *), void *args, void (*completi
 	SpawnedFunctionArgsBlock *argsBlock = nullptr;
 	Task *task = nullptr;
 
-        // Ensure ArgoDSM coherence for child tasks by self-downgrading
-        // TODO: Ensure that cluster and argo is actually active
-        EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-        if(commType.getValue() == "argo"){
-            argo::backend::release();
-        }
-	
 	nanos6_create_task(taskInfo, &_spawnedFunctionInvocationInfo, sizeof(SpawnedFunctionArgsBlock), (void **) &argsBlock, (void **) &task, nanos6_waiting_task, 0);
 	
 	assert(argsBlock != nullptr);
