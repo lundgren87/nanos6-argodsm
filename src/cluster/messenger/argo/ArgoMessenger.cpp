@@ -26,7 +26,7 @@ ArgoMessenger::ArgoMessenger()
 	
         EnvironmentVariable<StringifiedMemorySize> distribSizeEnv("ARGO_DISTRIBUTED_MEMORY", (1UL << 29));
 	distribSize = distribSizeEnv.getValue();
-	argo::init(distribSize);
+	argo::init(distribSize, distribSize);
 	printf("Node %d: ArgoDSM initialized with %lu memory.\n", argo::node_id(), argo::backend::global_size());
 	
 	//! make sure that MPI errors are returned in the COMM_WORLD
