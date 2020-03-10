@@ -346,17 +346,10 @@ namespace ExecutionWorkflow {
 
 	void ArgoAcquireStep::start()
 	{
-#ifdef argo_coherence_hpp
-                // If argo selective self invalidation is defined
-                selective_si(_dataAccess.getStartAddress(), _dataAccess.getSize());
-                //printf("Addr: %p \tsize: %d\n", 
-                //        _dataAccess.getStartAddress(),
-                //        _dataAccess.getSize()
-                //);
-#else
-                // If it is not defined, use node wide acquire instead
-                argo::backend::acquire();
-#endif
+		/* Perform the ArgoDSM acquire or selective_si equivalent */
+		//TODO: Better way of choosing between acquire and selective coherence
+		argo::backend::acquire();
+		//selective_si(_dataAccess.getStartAddress(), _dataAccess.getSize());
 
 		releaseSuccessors();
 		delete this;
@@ -364,20 +357,27 @@ namespace ExecutionWorkflow {
 
 
 	void ArgoReleaseStep::releaseRegion(
-		DataAccessRegion const &region, MemoryPlace const *location
-	) {
+			DataAccessRegion const &region, MemoryPlace const *location
+			) {
 		Instrument::logMessage(
-			Instrument::ThreadInstrumentationContext::getCurrent(),
-			"releasing remote region:", region);
+				Instrument::ThreadInstrumentationContext::getCurrent(),
+				"releasing remote region:", region);
+
+		/* Perform the ArgoDSM release or selective_sd equivalent */
+		//TODO: Better way of choosing between release and selective coherence
+		argo::backend::release();
+		//selective_sd(region.getStartAddress(), region.getSize());
+		//selective_sd_region(region.getStartAddress(), region.getSize());
+
 		TaskOffloading::sendRemoteAccessRelease(_remoteTaskIdentifier,
 				_offloader, region, _type, _weak, location);
-		
+
 		if ((_bytesToRelease -= region.getSize()) == 0) {
 			delete this;
 		}
 	}
 
-        bool ArgoReleaseStep::checkDataRelease(DataAccess const *access)
+	bool ArgoReleaseStep::checkDataRelease(DataAccess const *access)
 	{
 		bool releases = (access->getObjectType() == taskwait_type)
 			&& access->getOriginator()->isSpawned()
@@ -385,32 +385,108 @@ namespace ExecutionWorkflow {
 			&& access->writeSatisfied();
 
 		Instrument::logMessage(
-			Instrument::ThreadInstrumentationContext::getCurrent(),
-			"Checking DataRelease access:",
-			access->getInstrumentationId(),
-			" object_type:", access->getObjectType(),
-			" spawned originator:", access->getOriginator()->isSpawned(),
-			" read:", access->readSatisfied(),
-			" write:", access->writeSatisfied(),
-			" releases:", releases);
-		
+				Instrument::ThreadInstrumentationContext::getCurrent(),
+				"Checking DataRelease access:",
+				access->getInstrumentationId(),
+				" object_type:", access->getObjectType(),
+				" spawned originator:", access->getOriginator()->isSpawned(),
+				" read:", access->readSatisfied(),
+				" write:", access->writeSatisfied(),
+				" releases:", releases);
+
 		return releases;
 	}
 
 
 	void ArgoReleaseStep::start()
 	{
-		// TODO: Implement selective self downgrade.
+		releaseSuccessors();
+	}
+
+	void ArgoReleaseStepLocal::start()
+	{
+		/* Perform the ArgoDSM release or selective_sd equivalent */
+		//TODO: Better way of choosing between release and selective coherence
 		argo::backend::release();
+		//selective_sd(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
+		//selective_sd_region(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
 
 		releaseSuccessors();
 	}
 
-        void ArgoReleaseStepLocal::start()
-        {
-                // TODO: Implement selective self downgrade.
-                argo::backend::release();
 
-                releaseSuccessors();
-        }
+	void ArgoDataLinkStep::linkRegion(
+			DataAccessRegion const &region,
+			MemoryPlace const *location,
+			bool read,
+			bool write
+			) {
+		assert(_targetMemoryPlace != nullptr);
+
+		/* Perform the ArgoDSM release or selective_sd equivalent */
+		//TODO: Better way of choosing between release and selective coherence
+		argo::backend::release();
+		//selective_sd(region.getStartAddress(), region.getSize());
+		//selective_sd_region(region.getStartAddress(), region.getSize());
+
+		TaskOffloading::SatisfiabilityInfo satInfo(region,
+				location->getIndex(), read, write);
+		TaskOffloading::ClusterTaskContext *clusterTaskContext =
+			_task->getClusterContext();
+		TaskOffloading::sendSatisfiability(_task,
+				clusterTaskContext->getRemoteNode(), satInfo);
+		size_t linkedBytes = region.getSize();
+
+		//! We need to account for linking both read and write
+		//! satisfiability
+		if (read && write) {
+			linkedBytes *= 2;
+		}
+		if ((_bytesToLink -= linkedBytes) == 0) {
+			delete this;
+		}
+	}
+
+	void ArgoDataLinkStep::start()
+	{
+		assert(_targetMemoryPlace != nullptr);
+
+		if (!_read && !_write) {
+			//! Nothing to do here. We can release the execution
+			//! step. Location will be linked later on.
+			releaseSuccessors();
+			return;
+		}
+
+		assert(_sourceMemoryPlace != nullptr);
+		Instrument::logMessage(
+				Instrument::ThreadInstrumentationContext::getCurrent(),
+				"ClusterDataLinkStep for MessageTaskNew. ",
+				"Current location of ", _region,
+				" Node:", _sourceMemoryPlace->getIndex()
+				);
+
+		//! The current node is the source node. We just propagate
+		//! the info we 've gathered
+		assert(_successors.size() == 1);
+		ClusterExecutionStep *execStep =
+			(ClusterExecutionStep *)_successors[0];
+
+		assert(_read || _write);
+		execStep->addDataLink(_sourceMemoryPlace->getIndex(),
+				_region, _read, _write);
+
+		releaseSuccessors();
+		size_t linkedBytes = _region.getSize();
+		//! If at the moment of offloading the access is not both
+		//! read and write satisfied, then the info will be linked
+		//! later on. In this case, we just account for the bytes that
+		//! we link now, the Step will be deleted when all the bytes
+		//! are linked through linkRegion method invocation
+		if (_read && _write) {
+			delete this;
+		} else {
+			_bytesToLink -= linkedBytes;
+		}
+	}
 };

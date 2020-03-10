@@ -319,12 +319,18 @@ namespace ExecutionWorkflow {
 	};
 
 	class ArgoReleaseStepLocal : public DataReleaseStep {
-		public:
-			// Inherit constructor
-			using DataReleaseStep::DataReleaseStep;
+		DataAccess *_dataAccess;
 
-			// Overload start with ArgoDSM functionality
-			void start();
+		public:
+		ArgoReleaseStepLocal(
+				DataAccess *access
+				) : DataReleaseStep(access),
+		_dataAccess(access)
+		{
+		}
+
+		// Overload start with ArgoDSM functionality
+		void start();
 	};
 
 
@@ -351,6 +357,53 @@ namespace ExecutionWorkflow {
 
 		bool checkDataRelease(DataAccess const *access);
 
+		void start();
+	};
+
+
+	class ArgoDataLinkStep : public DataLinkStep {
+		//! The MemoryPlace that holds the data at the moment
+		MemoryPlace const *_sourceMemoryPlace;
+
+		//! The MemoryPlace that requires the data
+		MemoryPlace const *_targetMemoryPlace;
+
+		//! DataAccessRegion that the Step covers
+		DataAccessRegion _region;
+
+		//! The task in which the access belongs to
+		Task *_task;
+
+		//! read satisfiability at creation time
+		bool _read;
+
+		//! write satisfiability at creation time
+		bool _write;
+
+		public:
+		ArgoDataLinkStep(
+				MemoryPlace const *sourceMemoryPlace,
+				MemoryPlace const *targetMemoryPlace,
+				DataAccess *access
+				) : DataLinkStep(access),
+		_sourceMemoryPlace(sourceMemoryPlace),
+		_targetMemoryPlace(targetMemoryPlace),
+		_region(access->getAccessRegion()),
+		_task(access->getOriginator()),
+		_read(access->readSatisfied()),
+		_write(access->writeSatisfied())
+		{
+			access->setDataLinkStep(this);
+		}
+
+		void linkRegion(
+				DataAccessRegion const &region,
+				MemoryPlace const *location,
+				bool read,
+				bool write
+				);
+
+		//! Start the execution of the Step
 		void start();
 	};
 
@@ -426,10 +479,13 @@ namespace ExecutionWorkflow {
 			);
 
 		if (needsTransfer) {
-			// TODO: Use a better Argo detection technique.
-			/* Check if memory belongs to ArgoDSM and perform an acquire in place of data copy. */
-			if (access->getAccessRegion().getStartAddress() >= argo::virtual_memory::start_address() &&
-					access->getAccessRegion().getStartAddress() < argo::virtual_memory::start_address() + argo::virtual_memory::size()
+			/* If the memory address belongs to ArgoDSM memory space,
+			 * perform an Argo step instead of a Nanos6 step */
+			if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
+					static_cast<char*>(argo::virtual_memory::start_address()) &&
+					static_cast<char*>(access->getAccessRegion().getStartAddress()) <
+					static_cast<char*>(argo::virtual_memory::start_address()) +
+					argo::virtual_memory::size()
 			   ){
 				return new ArgoAcquireStep(access->getAccessRegion());
 			}
@@ -481,7 +537,18 @@ namespace ExecutionWorkflow {
 		}
 
 		assert(access->getObjectType() == access_type);
-		return new ClusterDataLinkStep(source, target, access);
+		/* If the memory address belongs to ArgoDSM memory space,
+		 * perform an Argo step instead of a Nanos6 step */
+		if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
+				static_cast<char*>(argo::virtual_memory::start_address()) &&
+				static_cast<char*>(access->getAccessRegion().getStartAddress()) <
+				static_cast<char*>(argo::virtual_memory::start_address()) +
+				argo::virtual_memory::size()
+		   ){
+			return new ArgoDataLinkStep(source, target, access);
+		}else{
+			return new ClusterDataLinkStep(source, target, access);
+		}
 	}
 }
 
