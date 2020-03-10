@@ -10,7 +10,7 @@ AC_DEFUN([AC_CHECK_ARGODSM],
 		if test x"${ac_cv_use_argodsm_prefix}" != x"" ; then
 			AC_MSG_CHECKING([the ArgoDSM installation prefix])
 			AC_MSG_RESULT([${ac_cv_use_argodsm_prefix}])
-			argodsm_LIBS="-L${ac_cv_use_argodsm_prefix}/lib -largo -largobackend-mpi -lrt"
+			argodsm_LIBS="-Wl,-rpath,${ac_cv_use_argodsm_prefix}/lib -L${ac_cv_use_argodsm_prefix}/lib -largo -largobackend-mpi"
 			argodsm_CPPFLAGS="-I${ac_cv_use_argodsm_prefix}/include"
 			ac_use_argodsm=yes
 		fi
