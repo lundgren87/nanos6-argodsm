@@ -194,28 +194,31 @@ namespace ClusterMemoryManagement {
 	
 	void *lmalloc(size_t size)
 	{
-                EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-	        RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
 
-                // Free ArgoDSM memory if ArgoDSM is active
-                if(commType.getValue() == "argo"){
-                        printf("Allocating %zu ArgoDSM distributed memory (lmalloc).\n", size);
-                        return dynamic_alloc(size);
-                }else{
-                        printf("Allocating %zu Nanos6 memory (lmalloc).\n", size);
-		        return MemoryAllocator::alloc(size);
-                }
+		// Free ArgoDSM memory if ArgoDSM is active
+		if(commType.getValue() == "argo"){
+			//printf("Allocating %zu ArgoDSM distributed memory (lmalloc).\n", size);
+			//return dynamic_alloc(size);
+			printf("Allocating %zu ArgoDSM distributed memory (lmalloc redirecting to dmalloc).\n", size);
+			return dmalloc(size, nanos6_equpart_distribution, 0, NULL);
+		}else{
+			printf("Allocating %zu Nanos6 memory (lmalloc).\n", size);
+			return MemoryAllocator::alloc(size);
+		}
 	}
 	
 	void lfree(void *ptr, size_t size)
 	{
 		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-	        RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
-                // Free ArgoDSM memory if selected
-                if(commType.getValue() == "argo"){
-		        dynamic_free(ptr);
-                }else{
-                        MemoryAllocator::free(ptr, size);
-                }
-        }
+		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		// Free ArgoDSM memory if selected
+		if(commType.getValue() == "argo"){
+			//dynamic_free(ptr);
+			nanos6_dfree(ptr, size);
+		}else{
+			MemoryAllocator::free(ptr, size);
+		}
+	}
 }
