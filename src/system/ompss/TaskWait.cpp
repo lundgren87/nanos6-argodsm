@@ -37,11 +37,19 @@ void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
 	
 	Instrument::enterTaskWait(currentTask->getInstrumentationTaskId(), invocationSource, Instrument::task_id_t());
 	
+	//TODO Check if we are in cluster AND using argo
+	EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+
 	// Fast check
 	if (currentTask->doesNotNeedToBlockForChildren()) {
 		// This in combination with a release from the children makes their changes visible to this thread
 		std::atomic_thread_fence(std::memory_order_acquire);
 		
+		// Ensure ArgoDSM coherence by self-invalidating
+		if(commType.getValue() == "argo"){
+			argo::backend::acquire();
+		}
+
 		Instrument::exitTaskWait(currentTask->getInstrumentationTaskId());
 		
 		return;
@@ -82,12 +90,10 @@ void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
 	// This in combination with a release from the children makes their changes visible to this thread
 	std::atomic_thread_fence(std::memory_order_acquire);
 	
-        // Ensure ArgoDSM coherence by self-invalidating
-        //TODO Check if we are in cluster and using argo
-        EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-        if(commType.getValue() == "argo"){
-            argo::backend::acquire();
-        }
+	// Ensure ArgoDSM coherence by self-invalidating
+	if(commType.getValue() == "argo"){
+		argo::backend::acquire();
+	}
 
 	Instrument::exitTaskWait(currentTask->getInstrumentationTaskId());
 	
