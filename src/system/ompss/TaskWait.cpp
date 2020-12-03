@@ -98,7 +98,7 @@ void TaskWait::taskWait(char const *invocationSource, bool fromUserCode)
 	
 	// Ensure ArgoDSM coherence by self-invalidating
 	//TODO Check if we are in cluster and using argo
-	EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+	ConfigVariable<std::string> commType("cluster.communication", "disabled");
 	if(commType.getValue() == "argo"){
 		argo::backend::acquire();
 	}

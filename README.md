@@ -73,7 +73,6 @@ where `INSTALLATION_PREFIX` is the directory into which to install Nanos6.
 ```sh
 $ ./configure   --prefix=INSTALLATION_PREFIX                \
                 --enable-cluster                            \
-                --enable-execution-workflow                 \
                 --with-argodsm=ARGODSM_INSTALL_PATH         \
                 ...other options...
 $ make all check
@@ -429,12 +428,13 @@ Nanos6 needs to be configured with the `--enable-cluster` flag.
 For more information on how to write and run cluster applications see [Cluster.md](docs/cluster/Cluster.md).
 
 ## ArgoDSM support
-[//]: # (TODO: This needs to be updated to not use envvars)
-**In order to execute Nanos6-ArgoDSM applications with ArgoDSM support**, the following environment variables have to be set. `ARGO_DISTRIBUTED_MEMORY` dictates the amount of memory ArgoDSM will reserve on the system in bytes.
+**In order to execute Nanos6-ArgoDSM applications with ArgoDSM support**, the following configuration variables have to be set.
 ```sh
-$ export NANOS6_COMMUNICATION=argo
-$ export ARGO_DISTRIBUTED_MEMORY=1073741824
+$ cluster.communication=argo
+$ argo.distributed_memory=1073741824
 ```
+`argo.distributed_memory` dictates the amount of memory ArgoDSM will reserve on the system in bytes. Additionally, `argo.cache_size` can be used to request an ArgoDSM cache size other than the default value equal to the full distributed memory size. For additional configuration variables see [Cluster.md](docs/cluster/Cluster.md).
+
 Depending on the system configuration, it may also be necessary to disable *address space layout randomization* (ASLR). It is recommended to execute Nanos6-ArgoDSM applications through mpirun or mpiexec. In order to execute a Nanos6-ArgoDSM application compiled with Mercurium on four nodes with ASLR disabled, execute the following:
 ```
 $ setarch $(uname -m) -R mpirun -n 4 ./application
