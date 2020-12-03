@@ -36,8 +36,7 @@ namespace ClusterMemoryManagement {
 		//! nodes
 		if (isMaster) {
 			// Get communicator type
-			EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-			RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+			ConfigVariable<std::string> commType("cluster.communication", "disabled");
 
 			// Allocate ArgoDSM memory if selected
 			if(commType.getValue() == "argo"){
@@ -118,8 +117,7 @@ namespace ClusterMemoryManagement {
 		assert(ptr != nullptr);
 		assert(size > 0);
 		// Get communicator type
-		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		ConfigVariable<std::string> commType("cluster.communication", "disabled");
 
 		DataAccessRegion distributedRegion(ptr, size);
 
@@ -179,9 +177,8 @@ namespace ClusterMemoryManagement {
 
 	void *lmalloc(size_t size)
 	{
-		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
-
+		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+		
 		// Allocate ArgoDSM memory if ArgoDSM is active
 		// TODO: Try to register this as local alloc in the future
 		if(commType.getValue() == "argo"){
@@ -204,8 +201,8 @@ namespace ClusterMemoryManagement {
 
 	void lfree(void *ptr, size_t size)
 	{
-		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+
 		// Free ArgoDSM memory if selected
 		if(commType.getValue() == "argo"){
 			dynamic_free(ptr);

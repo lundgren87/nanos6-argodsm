@@ -35,8 +35,7 @@ bool MessageDmalloc::handleMessage()
 		 * the allocated address to all other nodes */
 
 		// Get communicator type
-		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-		RuntimeInfo::addEntry("cluster_communication", "Cluster Communication Implementation", commType);
+		ConfigVariable<std::string> commType("cluster.communication", "disabled");
 
 		// Allocate ArgoDSM memory if selected
 		if(commType.getValue() == "argo"){
