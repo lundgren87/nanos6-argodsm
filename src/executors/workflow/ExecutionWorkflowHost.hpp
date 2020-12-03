@@ -1,3 +1,9 @@
+/*
+	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+
+	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
+*/
+
 #ifndef EXECUTION_WORKFLOW_HOST_HPP
 #define EXECUTION_WORKFLOW_HOST_HPP
 
@@ -7,7 +13,7 @@
 class MemoryPlace;
 class ComputePlace;
 class Task;
-class DataAccess;
+struct DataAccess;
 
 namespace ExecutionWorkflow {
 	class HostAllocationAndPinningStep : public Step {

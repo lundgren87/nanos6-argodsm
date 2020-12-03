@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -10,7 +10,7 @@
 
 #include "InstrumentTaskId.hpp"
 
-#include "../api/InstrumentDataAccessTypes.hpp"
+#include "instrument/api/InstrumentDataAccessTypes.hpp"
 
 
 namespace Instrument {

@@ -1,11 +1,13 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef MESSAGE_RELEASE_ACCESS_HPP
 #define MESSAGE_RELEASE_ACCESS_HPP
+
+#include <sstream>
 
 #include "Message.hpp"
 #include "dependencies/DataAccessType.hpp"
@@ -46,10 +48,14 @@ public:
 	
 	bool handleMessage();
 	
-	inline void toString(std::ostream &where) const
+	inline std::string toString() const
 	{
-		where << "ReleaseAccess region:" << _content->_region
-			<< " location:" << _content->_location;
+		std::stringstream ss;
+		
+		ss << "[region:" << _content->_region
+			<< " location:" << _content->_location << "]";
+		
+		return ss.str();
 	}
 };
 

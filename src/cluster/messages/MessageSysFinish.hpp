@@ -1,11 +1,13 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2018 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef MESSAGE_SYS_FINISH_HPP
 #define MESSAGE_SYS_FINISH_HPP
+
+#include <sstream>
 
 #include "Message.hpp"
 
@@ -19,9 +21,13 @@ public:
 	
 	bool handleMessage();
 	
-	inline void toString(std::ostream &where) const
+	inline std::string toString() const
 	{
-		where << "SysFinish";
+		std::stringstream ss;
+		
+		ss << "node shutdown";
+		
+		return ss.str();
 	}
 };
 

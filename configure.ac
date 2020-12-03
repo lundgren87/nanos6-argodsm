@@ -2,11 +2,16 @@
 # Process this file with autoconf to produce a configure script.
 
 #	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-#	
-#	Copyright (C) 2015-2019 Barcelona Supercomputing Center (BSC)
+#
+#	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
+
+# Nanos6 version and copyright
+m4_define([nanos6_version], [2.5])
+m4_define([nanos6_license], ["GPL3"])
+m4_define([nanos6_copyright], ["2015-2020 Barcelona Supercomputing Center (BSC)"])
 
 AC_PREREQ([2.69])
-AC_INIT([nanos6], [2.2], [pm-tools@bsc.es])
+AC_INIT([nanos6], [nanos6_version], [pm-tools@bsc.es])
 AC_CONFIG_SRCDIR([src/scheduling/Scheduler.hpp])
 AC_CONFIG_AUX_DIR([config-aux])
 AC_CONFIG_MACRO_DIR([m4])
@@ -18,6 +23,7 @@ AM_INIT_AUTOMAKE([foreign dist-bzip2 no-dist-gzip subdir-objects -Wall tar-pax -
 AM_SILENT_RULES([yes])
 
 AC_CHECK_SPECIAL_HOST_ARCH
+AC_CHECK_CACHE
 
 AC_CONFIG_HEADERS([config.h])
 
@@ -50,6 +56,8 @@ SSS_PUSH_NANOS6_MERCURIUM
 SSS_CHECK_MERCURIUM_ACCEPTS_EXTERNAL_INSTALLATION
 SSS_POP_NANOS6_MERCURIUM
 
+SSS_CHECK_NANOS6_CLANG
+
 DX_DOT_FEATURE(ON)
 DX_INIT_DOXYGEN([nanos6_rt], [docs/Doxyfile], [docs/doxygen])
 full_top_srcdir=$(readlink -f ${srcdir})
@@ -80,10 +88,12 @@ AC_CHECK_ARGODSM
 # Checks for library functions.
 AC_CHECK_DLOPEN
 AC_CHECK_BACKTRACE
-AC_CHECK_PAPI
 AC_CHECK_LIBNUMA
 AC_CHECK_MEMKIND
+AC_CHECK_PAPI
 AC_CHECK_PQOS
+AC_CHECK_DLB
+AC_CHECK_JEMALLOC
 
 AC_CHECK_FUNCS([reallocarray aligned_alloc])
 AC_CHECK_MADV_FREE
@@ -110,38 +120,15 @@ CHECK_AS_NEEDED_FLAGS
 ADD_AS_NEEDED_SUPPORT_TO_LIBTOOL
 
 SSS_FIXUP_COMPILER_FLAGS
+AC_CHECK_EXTRACT_FIRST_COMPILER_FLAG([FALIGNED_NEW_FLAG], [-faligned-new])
 
 AC_CHECK_EXTRACT_FIRST_COMPILER_FLAG([MCMODEL_FLAGS], [-mcmodel=large -mcmodel=medium])
 
 CONFIGURE_NANOS6_FEATURES
-SELECT_NANOS6_INSTRUMENTATION_VARIANTS
+SELECT_NANOS6_INSTRUMENTATIONS
 
 # Check for gethostid
 AC_CHECK_FUNCS([gethostid])
-
-# Dependency engine to use
-AC_ARG_WITH(
-	[dependencies],
-	[AS_HELP_STRING([--with-dependencies=type], [specify the type of dependencies to handle @<:@default=linear-regions-fragmented@:>@])],
-	[ac_with_dependencies="${withval}"],
-	[ac_with_dependencies="linear-regions-fragmented"]
-)
-AC_MSG_CHECKING([the type of dependencies to handle])
-case x"${ac_with_dependencies}" in
-	x"linear-regions-fragmented")
-		AC_MSG_RESULT([${ac_with_dependencies}])
-		ac_supports_concurrent=yes
-		ac_supports_reductions=yes
-		;;
-	*)
-		AC_MSG_ERROR([unknown dependency type ${ac_with_dependencies}])
-		;;
-esac
-AM_CONDITIONAL([LINEAR_REGION_FRAGMENTED_DEPENDENCIES], [test "x${ac_with_dependencies}" = "xlinear-regions-fragmented"])
-AM_CONDITIONAL([HAVE_LINEAR_REGION_SUPPORT], [test "x${ac_with_dependencies}" != "xdiscrete"])
-AM_CONDITIONAL([HAVE_CONCURRENT_SUPPORT], [test x"${ac_supports_concurrent}" = x"yes"])
-AM_CONDITIONAL([HAVE_REDUCTIONS_SUPPORT], [test x"${ac_supports_reductions}" = x"yes"])
-
 
 AC_ARG_ENABLE(
 	[dependency-delayed-operations],
@@ -217,54 +204,22 @@ AC_ARG_ENABLE(
 )
 AM_CONDITIONAL([LESS_TEST_THREADS], [test x"${ac_less_test_threads}" = x"yes"])
 
-AC_ARG_ENABLE([cuda], [AS_HELP_STRING([--enable-cuda], [Enable CUDA task support])])
+# Check support for CUDA
+AC_CHECK_CUDA
 
+# Check support for OpenACC
+AC_ARG_ENABLE([openacc], [AS_HELP_STRING([--enable-openacc], [Enable OpenACC task support])])
 
-if test x"${enable_cuda}" = x"yes" ; then
-	PKG_CHECK_MODULES(
-		[CUDA],
-		[cudart-9.2],
-		[
-			ac_use_cuda=yes
-		],
-		[
-			PKG_CHECK_MODULES(
-				[CUDA],
-				[cudart-9.1],
-				[
-					ac_use_cuda=yes
-				],
-				[
-					PKG_CHECK_MODULES(
-						[CUDA],
-						[cudart-9.0],
-						[
-							ac_use_cuda=yes
-						],
-						[
-							PKG_CHECK_MODULES(
-								[CUDA],
-								[cudart-8.0],
-								[
-									ac_use_cuda=yes
-								],
-								[
-									ac_use_cuda=no
-								]
-							)
-						]
-					)
-				]
-			)
-		]
-	)
+if test x"${enable_openacc}" = x"yes" ; then
+    AC_CHECK_PGI
 else
-	ac_use_cuda=no
+    ac_use_openacc=no
 fi
-AM_CONDITIONAL([USE_CUDA], [test x${ac_use_cuda} = x"yes"])
+AM_CONDITIONAL([USE_OPENACC], [test x${ac_use_openacc} = x"yes"])
 
-if test x"${ac_use_cuda}" = x"yes" ; then
-	AC_DEFINE([USE_CUDA], [1], [Define if CUDA is enabled.])
+if test x"${ac_use_openacc}" = x"yes" ; then
+    AC_DEFINE([USE_OPENACC], [1], [Define if OpenACC is enabled.])
+    AC_DEFINE_UNQUOTED([NANOS6_OPENACC_PGI_HEADER], [${openacc_h_pgi}], [PGI OpenACC include header.])
 fi
 
 # Check support for Cluster
@@ -311,28 +266,29 @@ if test x"${ac_use_workflow}" = x"yes" ; then
 	AC_DEFINE([USE_EXEC_WORKFLOW], [1], [Define if Execution Workflow feature is enabled.])
 fi
 
-AC_ARG_ENABLE(
-	[monitoring],
-	[AS_HELP_STRING([--enable-monitoring], [enable monitoring and prediction techniques of statistics])],
-	[
-		case "${enableval}" in
-		yes)
-			ac_monitoring=yes
-			;;
-		no)
-			ac_monitoring=no
-			;;
-		*)
-			AC_MSG_ERROR([bad value ${enableval} for --enable-monitoring])
-			;;
-		esac
-	],
-	[ac_monitoring=no]
-)
-AM_CONDITIONAL([MONITORING_ENABLED], [test x"${ac_monitoring}" = x"yes"])
-if test x"${ac_monitoring}" = x"yes" ; then
-	AC_DEFINE([MONITORING_ENABLED], [1], [Define if Monitoring is enabled.])
+# Dependency engines to build
+
+# Always include regions dependencies
+ac_regions_deps=yes
+AC_MSG_CHECKING([if regions dependencies should be included])
+AC_MSG_RESULT([$ac_regions_deps])
+
+AM_CONDITIONAL([REGIONS_DEPENDENCIES], [test x"${ac_regions_deps}" = x"yes"])
+
+AM_CONDITIONAL([HAVE_LINEAR_REGION_SUPPORT], [test x"${ac_regions_deps}" = x"yes"])
+AM_CONDITIONAL([HAVE_CONCURRENT_SUPPORT], [test x"${ac_regions_deps}" = x"yes"])
+AM_CONDITIONAL([HAVE_REDUCTIONS_SUPPORT], [test x"${ac_regions_deps}" = x"yes"])
+
+ac_discrete_deps=yes
+if test x"${ac_use_cluster}" = x"yes" ; then
+	ac_discrete_deps=no
+	AC_MSG_WARN([Cluster enabled, disabling discrete dependency engine])
 fi
+
+AC_MSG_CHECKING([if discrete dependencies should be included])
+AC_MSG_RESULT([$ac_discrete_deps])
+
+AM_CONDITIONAL([DISCRETE_DEPENDENCIES], [test x"${ac_discrete_deps}" = x"yes"])
 
 AC_ARG_ENABLE(
 	[chrono-arch],
@@ -358,26 +314,26 @@ if test x"${ac_chrono_arch}" = x"yes" ; then
 fi
 
 AC_ARG_ENABLE(
-	[monitoring-hwevents],
-	[AS_HELP_STRING([--enable-monitoring-hwevents], [enable monitoring and prediction techniques for hardware events])],
+	[extra-debug],
+	[AS_HELP_STRING([--enable-extra-debug], [enable extra assertions and checks in debug - may cause significant slowdown])],
 	[
 		case "${enableval}" in
 		yes)
-			ac_monitoring_hwevents=yes
+			ac_extra_debug=yes
 			;;
 		no)
-			ac_monitoring_hwevents=no
+			ac_extra_debug=no
 			;;
 		*)
-			AC_MSG_ERROR([bad value ${enableval} for --enable-monitoring-hwevents])
+			AC_MSG_ERROR([bad value ${enableval} for --enable-extra-debug])
 			;;
 		esac
 	],
-	[ac_monitoring_hwevents=no]
+	[ac_extra_debug=no]
 )
-AM_CONDITIONAL([MONITORING_HWEVENTS_ENABLED], [test x"${ac_monitoring_hwevents}" = x"yes"])
-if test x"${ac_monitoring_hwevents}" = x"yes" ; then
-	AC_DEFINE([MONITORING_HWEVENTS_ENABLED], [1], [Define if Monitoring for Hardware Events is enabled.])
+AM_CONDITIONAL([EXTRA_DEBUG_ENABLED], [test x"${ac_extra_debug}" = x"yes"])
+if test x"${ac_extra_debug}" = x"yes" ; then
+	AC_DEFINE([EXTRA_DEBUG_ENABLED], [1], [Define if extra debug checks are enabled. Any checks with big performance impact should be conditional to this.])
 fi
 
 AC_CHECK_MAIN_WRAPPER_TYPE
@@ -386,13 +342,18 @@ AC_CHECK_SYMBOL_RESOLUTION_STRATEGY
 AX_CHECK_EXTRAE
 PKG_CHECK_MODULES([hwloc], [hwloc])
 
+AC_SUBST([NANOS6_VERSION], [nanos6_version])
+AC_SUBST([NANOS6_LICENSE], [nanos6_license])
+AC_SUBST([NANOS6_COPYRIGHT], [nanos6_copyright])
+
 AM_EXTRA_RECURSIVE_TARGETS([build-tests])
 
 AC_CONFIG_FILES([
 	Makefile
 	docs/Doxyfile
 	commands/Makefile
-	tests/directive_based/Makefile
+	tests/directive_based/mercurium/Makefile
+	tests/directive_based/clang/Makefile
 	scripts/Makefile
 ])
 AC_OUTPUT
@@ -402,6 +363,9 @@ if test x"${ac_have_nanos6_mercurium}" = x"no" ; then
 	AC_MSG_WARN([the directive based tests will not be checked since there is no Mercurium compiler available])
 fi
 
+if test x"${ac_have_nanos6_clang}" = x"no" ; then
+	AC_MSG_WARN([the directive based tests will not be checked since there is no Clang compiler available])
+fi
 
 _AS_ECHO([])
 _AS_ECHO([])
@@ -410,15 +374,17 @@ _AS_ECHO([   Compiler version... ${CXX_VERSION}])
 _AS_ECHO([   Compiler optimization flags... ${OPT_CXXFLAGS}])
 _AS_ECHO([   Compiler debug flags... ${DEBUG_CXXFLAGS}])
 _AS_ECHO([])
-_AS_ECHO([   Dependency implementation... ${ac_with_dependencies}])
+_AS_ECHO([   Include linear fragmented dependencies... ${ac_regions_deps}])
+_AS_ECHO([   Include discrete dependencies... ${ac_discrete_deps}])
 _AS_ECHO([   Symbol resolution method... ${ac_cv_use_symbol_resolution}])
 _AS_ECHO([])
 _AS_ECHO([   Mercurium prefix... ${NANOS6_MCC_PREFIX}])
 _AS_ECHO([])
+_AS_ECHO([   Clang prefix... ${NANOS6_CLANG_PREFIX}])
+_AS_ECHO([])
 _AS_ECHO([   Code model flags... ${MCMODEL_FLAGS}])
 _AS_ECHO([])
 _AS_ECHO([   Boost CPPFLAGS... ${BOOST_CPPFLAGS}])
-_AS_ECHO([   Boost LDFLAGS... ${BOOST_LDFLAGS}])
 _AS_ECHO([])
 _AS_ECHO([   Backtrace LIBS... ${BACKTRACE_LIBS}])
 _AS_ECHO([])
@@ -439,16 +405,6 @@ else
 fi
 
 _AS_ECHO([])
-_AS_ECHO_N([   PAPI is enabled... ])
-if test x"${ac_use_papi}" = x"yes" ; then
-	AC_MSG_RESULT([yes])
-	_AS_ECHO([   PAPI CPPFLAGS... ${papi_CPPFLAGS}])
-	_AS_ECHO([   PAPI LIBS... ${papi_LIBS}])
-else
-	AC_MSG_RESULT([no])
-fi
-
-_AS_ECHO([])
 _AS_ECHO([   elfutils CPPFLAGS... ${elfutils_CFLAGS}])
 _AS_ECHO([   elfutils LIBS... ${elfutils_LIBS}])
 
@@ -456,10 +412,20 @@ _AS_ECHO([])
 _AS_ECHO_N([   CUDA is enabled... ])
 if test x"${ac_use_cuda}" = x"yes" ; then
 	AC_MSG_RESULT([yes])
-	_AS_ECHO([	CUDA CFLAGS... ${CUDA_CFLAGS}])
-	_AS_ECHO([	CUDA LIBS... ${CUDA_LIBS}])
+	_AS_ECHO([   CUDA CFLAGS... ${CUDA_CFLAGS}])
+	_AS_ECHO([   CUDA LIBS... ${CUDA_LIBS}])
 else
 	AC_MSG_RESULT([no])
+fi
+
+_AS_ECHO([])
+_AS_ECHO_N([   OpenACC is enabled... ])
+if test x"${ac_use_openacc}" = x"yes" ; then
+    AC_MSG_RESULT([yes])
+    _AS_ECHO([   OpenACC/PGI LIBS... ${openacc_LIBS}])
+    _AS_ECHO([   OpenACC/PGI openacc.h... ${openacc_h_pgi}])
+else
+    AC_MSG_RESULT([no])
 fi
 
 _AS_ECHO([])
@@ -501,17 +467,19 @@ else
 fi
 
 _AS_ECHO([])
-_AS_ECHO_N([   Monitoring is enabled... ])
-if test x"${ac_monitoring}" = x"yes" ; then
+_AS_ECHO_N([   Chrono Arch is enabled... ])
+if test x"${ac_chrono_arch}" = x"yes" ; then
 	AC_MSG_RESULT([yes])
 else
 	AC_MSG_RESULT([no])
 fi
 
 _AS_ECHO([])
-_AS_ECHO_N([   Chrono Arch is enabled... ])
-if test x"${ac_chrono_arch}" = x"yes" ; then
+_AS_ECHO_N([   PAPI is enabled... ])
+if test x"${ac_use_papi}" = x"yes" ; then
 	AC_MSG_RESULT([yes])
+	_AS_ECHO([   PAPI CPPFLAGS... ${papi_CPPFLAGS}])
+	_AS_ECHO([   PAPI LIBS... ${papi_LIBS}])
 else
 	AC_MSG_RESULT([no])
 fi
@@ -522,11 +490,34 @@ if test x"${ac_use_pqos}" = x"yes" ; then
 	AC_MSG_RESULT([yes])
 	_AS_ECHO([   PQOS CPPFLAGS... ${pqos_CPPFLAGS}])
 	_AS_ECHO([   PQOS LIBS... ${pqos_LIBS}])
-	if test x"${ac_use_papi}" = x"yes" ; then
-		AC_MSG_WARN([Both PQoS hardware event monitoring and PAPI Instrumentation are enabled.])
-		AC_MSG_WARN([Using both at the same time may cause conflicts when polling events.])
-	fi
 else
 	AC_MSG_RESULT([no])
 fi
 
+_AS_ECHO([])
+_AS_ECHO_N([   DLB is enabled... ])
+if test x"${ac_use_dlb}" = x"yes" ; then
+	AC_MSG_RESULT([yes])
+	_AS_ECHO([   DLB CPPFLAGS... ${dlb_CPPFLAGS}])
+	_AS_ECHO([   DLB LIBS... ${dlb_LIBS}])
+else
+	AC_MSG_RESULT([no])
+fi
+
+_AS_ECHO([])
+_AS_ECHO_N([   jemalloc is enabled... ])
+if test x"${ac_use_jemalloc}" = x"yes" ; then
+	AC_MSG_RESULT([yes])
+	_AS_ECHO([   jemalloc CPPFLAGS... ${jemalloc_CPPFLAGS}])
+	_AS_ECHO([   jemalloc LIBS... ${jemalloc_LIBS}])
+else
+	AC_MSG_RESULT([no])
+fi
+
+_AS_ECHO([])
+_AS_ECHO_N([   Extra debug checks are enabled... ])
+if test x"${ac_extra_debug}" = x"yes" ; then
+	AC_MSG_RESULT([yes])
+else
+	AC_MSG_RESULT([no])
+fi

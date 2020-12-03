@@ -1,11 +1,13 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef MESSAGE_SATISFIABILITY_HPP
 #define MESSAGE_SATISFIABILITY_HPP
+
+#include <sstream>
 
 #include "Message.hpp"
 
@@ -35,9 +37,13 @@ public:
 	
 	bool handleMessage();
 	
-	inline void toString(std::ostream &where) const
+	inline std::string toString() const
 	{
-		where << "SatInfo " << _content->_satInfo;
+		std::stringstream ss;
+		
+		ss << "[SatInfo:" << _content->_satInfo << "]";
+		
+		return ss.str();
 	}
 };
 

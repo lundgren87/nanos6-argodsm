@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2015-2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -44,6 +44,7 @@ namespace Instrument {
 		{
 		}
 		
+		task_id_t& operator=(const task_id_t& other) = default;
 		
 		bool operator==(task_id_t const &other) const
 		{

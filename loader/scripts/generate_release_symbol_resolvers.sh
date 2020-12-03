@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-#	
+#
 #	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
 
 
@@ -29,7 +29,7 @@ for type in $* ; do
 	if [ "${type}" = "reduction" ] || [ "${type}" = "weak_reduction" ] ; then
 		continue
 	fi
-	
+
 	for dimensions in $(seq 1 ${maxdimensions}) ; do
 		echo "RESOLVE_API_FUNCTION_WITH_LOCAL_FALLBACK(nanos6_release_${type}_${dimensions}, \"multidimensional release\", NULL);"
 	done

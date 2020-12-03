@@ -1,143 +1,166 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2019 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 
 #include <alloca.h>
 #include <atomic>
+#include <cassert>
 #include <cstring>
 #include <pthread.h>
 
-#include "CPUActivation.hpp"
+#include "CPUManager.hpp"
 #include "TaskFinalization.hpp"
 #include "TaskFinalizationImplementation.hpp"
 #include "ThreadManager.hpp"
 #include "WorkerThread.hpp"
+#include "hardware/HardwareInfo.hpp"
+#include "hardware-counters/HardwareCounters.hpp"
 #include "scheduling/Scheduler.hpp"
 #include "system/If0Task.hpp"
 #include "system/PollingAPI.hpp"
+#include "tasks/LoopGenerator.hpp"
 #include "tasks/Task.hpp"
 #include "tasks/TaskImplementation.hpp"
 
 #include <DataAccessRegistration.hpp>
 #include <ExecutionWorkflow.hpp>
-#include <HardwareCounters.hpp>
 #include <InstrumentComputePlaceManagement.hpp>
 #include <InstrumentInstrumentationContext.hpp>
 #include <InstrumentTaskExecution.hpp>
 #include <InstrumentTaskStatus.hpp>
 #include <InstrumentThreadInstrumentationContext.hpp>
 #include <InstrumentThreadManagement.hpp>
-#include <Monitoring.hpp>
-
+#include <InstrumentWorkerThread.hpp>
 
 void WorkerThread::initialize()
 {
 	Instrument::createdThread(_instrumentationId, getComputePlace()->getInstrumentationId());
-	
+
 	assert(getComputePlace() != nullptr);
-	
+
 	Instrument::ThreadInstrumentationContext instrumentationContext(Instrument::task_id_t(), getComputePlace()->getInstrumentationId(), _instrumentationId);
-	
+	Instrument::threadHasResumed(_instrumentationId, getComputePlace()->getInstrumentationId(), false);
+
 	markAsCurrentWorkerThread();
-	
-	// This is needed for kernel-level threads to stop them after initialization 
+
+	HardwareCounters::threadInitialized();
+
+	// This is needed for kernel-level threads to stop them after initialization
 	synchronizeInitialization();
-	
-	Instrument::threadHasResumed(_instrumentationId, getComputePlace()->getInstrumentationId());
-	
-	HardwareCounters::initializeThread();
-	Monitoring::initializeThread();
 }
 
 
 void WorkerThread::body()
 {
 	initialize();
-	
+
 	CPU *cpu = getComputePlace();
-	Instrument::ThreadInstrumentationContext instrumentationContext(Instrument::task_id_t(), cpu->getInstrumentationId(), _instrumentationId);
-	
-	bool myCPUShouldBecomeIdleIfNoTask = false;
-	while (!_mustShutDown) {
-		CPUActivation::activationCheck(this);
-		
+
+	Instrument::ThreadInstrumentationContext instrumentationContext(
+		Instrument::task_id_t(),
+		cpu->getInstrumentationId(),
+		_instrumentationId);
+
+	// The WorkerThread will iterate until its CPU status signals that there is
+	// an ongoing shutdown and thus the thread must stop executing
+	while (CPUManager::checkCPUStatusTransitions(this) != CPU::shutdown_status) {
 		// Update the CPU since the thread may have migrated
 		cpu = getComputePlace();
 		assert(cpu != nullptr);
 		instrumentationContext.updateComputePlace(cpu->getInstrumentationId());
-		
-		if (_task == nullptr) {
-			_task = Scheduler::getReadyTask(cpu, nullptr, myCPUShouldBecomeIdleIfNoTask, true);
-		} else {
-			// The thread has been preassigned a task before being resumed
-		}
-		
+
+		// There should not be any pre-assigned task
+		assert(_task == nullptr);
+
+		_task = Scheduler::getReadyTask(cpu);
 		if (_task != nullptr) {
-			myCPUShouldBecomeIdleIfNoTask = false;
 			WorkerThread *assignedThread = _task->getThread();
-			
+
 			// A task already assigned to another thread
 			if (assignedThread != nullptr) {
 				_task = nullptr;
-				
+
 				ThreadManager::addIdler(this);
+				HardwareCounters::updateRuntimeCounters();
+				Instrument::threadWillSuspend(_instrumentationId, cpu->getInstrumentationId());
 				switchTo(assignedThread);
 			} else {
+				Instrument::workerThreadObtainedTask();
+				// If the task is a taskfor, the CPUManager may want to unidle
+				// collaborators to help execute it
+				if (_task->isTaskfor()) {
+					CPUManager::executeCPUManagerPolicy(cpu, HANDLE_TASKFOR, 0);
+				}
+
 				if (_task->isIf0()) {
 					// An if0 task executed outside of the implicit taskwait of its parent (i.e. not inline)
 					Task *if0Task = _task;
-					
+
 					// This is needed, since otherwise the semantics would be that the if0Task task is being launched from within its own execution
 					_task = nullptr;
-					
+
 					If0Task::executeNonInline(this, if0Task, cpu);
 				} else {
 					handleTask(cpu);
 				}
-				
+
 				_task = nullptr;
 			}
-		} else if (!myCPUShouldBecomeIdleIfNoTask) {
-			// Try to advance work before going to sleep
-			PollingAPI::handleServices();
-			myCPUShouldBecomeIdleIfNoTask = true;
+			CPUManager::checkIfMustReturnCPU(this);
 		} else {
-			// The code below is protected by a condition because under certain CPU activation/deactivation
-			// cases, the call to CPUActivation::activationCheck may have put the thread in the idle queue
-			// and the shutdown mechanism may have waken up the thread. In that case we do not want the
-			// thread to go back to the idle queue. The previous case does not need the condition because
-			// there is a task to be run and thus the program cannot be performing (a regular) shutdown.
-			if (!_mustShutDown) {
-				ThreadManager::addIdler(this);
-				
-				Instrument::suspendingComputePlace(cpu->getInstrumentationId());
-				switchTo(nullptr);
-				cpu = getComputePlace();
-				Instrument::resumedComputePlace(cpu->getInstrumentationId());
-				myCPUShouldBecomeIdleIfNoTask = false;
-			}
+			// Execute polling services
+			PollingAPI::handleServices();
+
+			// If no task is available, the CPUManager may want to idle this CPU
+			CPUManager::executeCPUManagerPolicy(cpu, IDLE_CANDIDATE);
 		}
+		Instrument::workerThreadSpins();
 	}
-	
+
+	// The thread should not have any task assigned at this point
+	assert(_task == nullptr);
+
+	HardwareCounters::updateRuntimeCounters();
 	Instrument::threadWillShutdown();
-	
-	Monitoring::shutdownThread();
-	HardwareCounters::shutdownThread();
-	
-	shutdownSequence();
+	HardwareCounters::threadShutdown();
+
+	ThreadManager::addShutdownThread(this);
 }
 
 
 void WorkerThread::handleTask(CPU *cpu)
 {
-	size_t NUMAId = cpu->_NUMANodeId;
-	//MemoryPlace *targetPlace = cpu->getMemoryPlace(NUMAId);
+	size_t NUMAId = cpu->getNumaNodeId();
 	MemoryPlace *targetMemoryPlace = HardwareInfo::getMemoryPlace(nanos6_host_device, NUMAId);
 	assert(targetMemoryPlace != nullptr);
 
-	ExecutionWorkflow::executeTask(_task, cpu, targetMemoryPlace);
+	// This if is only for source taskfors.
+	if (_task->isTaskforSource()) {
+		assert(!_task->isRunnable());
+
+		// We have already set the chunk of the preallocatedTaskfor in the scheduler.
+		if (cpu->getPreallocatedTaskfor()->getMyChunk() >= 0) {
+			Taskfor *collaborator = LoopGenerator::createCollaborator((Taskfor *)_task, cpu);
+			assert(collaborator->isRunnable());
+			assert(collaborator->getMyChunk() >= 0);
+
+			_task = collaborator;
+			ExecutionWorkflow::executeTask(_task, cpu, targetMemoryPlace);
+		} else {
+			bool finished = ((Taskfor *)_task)->notifyCollaboratorHasFinished();
+			if (finished) {
+				TaskFinalization::disposeTask(_task);
+			}
+		}
+	} else {
+		ExecutionWorkflow::executeTask(_task, cpu, targetMemoryPlace);
+	}
 
 	_task = nullptr;
 }

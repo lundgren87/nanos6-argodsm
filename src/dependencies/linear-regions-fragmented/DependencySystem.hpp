@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
 */
 
@@ -14,7 +14,7 @@ class DependencySystem {
 public:
 	static void initialize()
 	{
-		RuntimeInfo::addEntry("dependency_implementation", "Dependency Implementation", "linear-regions-fragmented");
+		RuntimeInfo::addEntry("dependency_implementation", "Dependency Implementation", "regions (linear-regions-fragmented)");
 	}
 };
 

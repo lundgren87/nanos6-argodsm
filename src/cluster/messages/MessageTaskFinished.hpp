@@ -1,11 +1,13 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef MESSAGE_TASK_FINISHED_HPP
 #define MESSAGE_TASK_FINISHED_HPP
+
+#include <sstream>
 
 #include "Message.hpp"
 
@@ -30,9 +32,12 @@ public:
 	
 	bool handleMessage();
 	
-	inline void toString(std::ostream &where) const
+	inline std::string toString() const
 	{
-		where << "TaskFinished from remote Node:" << getSenderId();
+		std::stringstream ss;
+		ss << "[offloadedTaskId:" << _content->_offloadedTaskId << "]";
+		
+		return ss.str();
 	}
 };
 

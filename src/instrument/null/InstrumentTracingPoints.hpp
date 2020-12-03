@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -8,7 +8,7 @@
 #define INSTRUMENT_NULL_TRACING_POINTS_HPP
 
 
-#include "../api/InstrumentTracingPoints.hpp"
+#include "instrument/api/InstrumentTracingPoints.hpp"
 
 
 namespace Instrument {

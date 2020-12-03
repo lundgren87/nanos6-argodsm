@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2015-2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -11,7 +11,7 @@
 #include <cassert>
 
 #include "InstrumentVerbose.hpp"
-#include "../api/InstrumentLogMessage.hpp"
+#include "instrument/api/InstrumentLogMessage.hpp"
 
 #include <InstrumentInstrumentationContext.hpp>
 

@@ -1,7 +1,7 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2019 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
 #include <cassert>
@@ -10,48 +10,64 @@
 
 #include "DataAccessRegistration.hpp"
 #include "TaskBlocking.hpp"
+#include "TaskWait.hpp"
 #include "executors/threads/WorkerThread.hpp"
 #include "hardware/HardwareInfo.hpp"
+#include "hardware-counters/HardwareCounters.hpp"
+#include "monitoring/Monitoring.hpp"
+#include "tasks/StreamManager.hpp"
 #include "tasks/Task.hpp"
 #include "tasks/TaskImplementation.hpp"
 
-#include <HardwareCounters.hpp>
 #include <InstrumentTaskStatus.hpp>
 #include <InstrumentTaskWait.hpp>
-#include <Monitoring.hpp>
 
 #include <lowlevel/EnvironmentVariable.hpp>
 #include <argo/argo.hpp>
 
 
-void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
+void nanos6_taskwait(char const *invocationSource)
+{
+	TaskWait::taskWait(invocationSource, true);
+}
+
+void TaskWait::taskWait(char const *invocationSource, bool fromUserCode)
 {
 	Task *currentTask = nullptr;
 	WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
-	
+
 	assert(currentThread != nullptr);
-	
+
 	currentTask = currentThread->getTask();
 	assert(currentTask != nullptr);
 	assert(currentTask->getThread() == currentThread);
-	
-	Instrument::enterTaskWait(currentTask->getInstrumentationTaskId(), invocationSource, Instrument::task_id_t());
-	
+
+	if (fromUserCode) {
+		HardwareCounters::updateTaskCounters(currentTask);
+		Monitoring::taskChangedStatus(currentTask, paused_status);
+	}
+	Instrument::task_id_t taskId = currentTask->getInstrumentationTaskId();
+	Instrument::enterTaskWait(taskId, invocationSource, Instrument::task_id_t(), fromUserCode);
+
 	// Fast check
 	if (currentTask->doesNotNeedToBlockForChildren()) {
 		// This in combination with a release from the children makes their changes visible to this thread
 		std::atomic_thread_fence(std::memory_order_acquire);
-		
-		Instrument::exitTaskWait(currentTask->getInstrumentationTaskId());
-		
+
+		if (fromUserCode) {
+			HardwareCounters::updateRuntimeCounters();
+			Monitoring::taskChangedStatus(currentTask, executing_status);
+		}
+		Instrument::exitTaskWait(taskId, fromUserCode);
+
 		return;
 	}
-	
+
 	ComputePlace *cpu = currentThread->getComputePlace();
 	assert(cpu != nullptr);
 	DataAccessRegistration::handleEnterTaskwait(currentTask, cpu, cpu->getDependencyData());
 	bool done = currentTask->markAsBlocked();
-	
+
 	// done == true:
 	// 	1. The condition of the taskwait has been fulfilled
 	// 	2. The task will not be queued at all
@@ -65,43 +81,54 @@ void nanos6_taskwait(__attribute__((unused)) char const *invocationSource)
 	// 		ThreadManager::switchThreads (that is inside TaskBlocking::taskBlocks)
 	// 		to resume immediately (and to wake the replacement thread, if any,
 	// 		on the "old" CPU)
-	
+
 	if (!done) {
-		Monitoring::taskChangedStatus(currentTask, blocked_status, cpu);
-		HardwareCounters::stopTaskMonitoring(currentTask);
-		
-		Instrument::taskIsBlocked(currentTask->getInstrumentationTaskId(), Instrument::in_taskwait_blocking_reason);
-		TaskBlocking::taskBlocks(currentThread, currentTask, ThreadManagerPolicy::POLICY_CHILDREN_INLINE);
-		
+		Instrument::taskIsBlocked(taskId, Instrument::in_taskwait_blocking_reason);
+
+		TaskBlocking::taskBlocks(currentThread, currentTask);
+
 		// Update the CPU since the thread may have migrated
 		cpu = currentThread->getComputePlace();
 		assert(cpu != nullptr);
 		Instrument::ThreadInstrumentationContext::updateComputePlace(cpu->getInstrumentationId());
 	}
-	
+
 	// This in combination with a release from the children makes their changes visible to this thread
 	std::atomic_thread_fence(std::memory_order_acquire);
 	
-        // Ensure ArgoDSM coherence by self-invalidating
-        //TODO Check if we are in cluster and using argo
-        EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-        if(commType.getValue() == "argo"){
-            argo::backend::acquire();
-        }
+	// Ensure ArgoDSM coherence by self-invalidating
+	//TODO Check if we are in cluster and using argo
+	EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
+	if(commType.getValue() == "argo"){
+		argo::backend::acquire();
+	}
 
-	Instrument::exitTaskWait(currentTask->getInstrumentationTaskId());
-	
 	assert(currentTask->canBeWokenUp());
 	currentTask->markAsUnblocked();
-	
+
 	DataAccessRegistration::handleExitTaskwait(currentTask, cpu, cpu->getDependencyData());
-	
-	if (!done && (currentThread != nullptr)) {
+
+	if (!done) {
 		// The instrumentation was notified that the task had been blocked
-		Instrument::taskIsExecuting(currentTask->getInstrumentationTaskId());
-		
-		HardwareCounters::startTaskMonitoring(currentTask);
-		Monitoring::taskChangedStatus(currentTask, executing_status, cpu);
+		Instrument::taskIsExecuting(taskId, true);
 	}
+
+	if (fromUserCode) {
+		HardwareCounters::updateRuntimeCounters();
+		Instrument::exitTaskWait(taskId, fromUserCode);
+		Monitoring::taskChangedStatus(currentTask, executing_status);
+	} else {
+		Instrument::exitTaskWait(taskId, fromUserCode);
+	}
+}
+
+void nanos6_stream_synchronize(size_t stream_id)
+{
+	StreamManager::synchronizeStream(stream_id);
+}
+
+void nanos6_stream_synchronize_all(void)
+{
+	StreamManager::synchronizeAllStreams();
 }
 

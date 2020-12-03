@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -77,6 +77,9 @@ private:
 public:
 	//! \brief Initialize the ClusterManager
 	static void initialize();
+	
+	//! \brief Notify all cluster nodes that we are shutting down
+	static void notifyShutdown();
 	
 	//! \brief Shutdown the ClusterManager
 	static void shutdown();

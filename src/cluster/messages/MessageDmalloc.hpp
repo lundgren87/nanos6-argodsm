@@ -1,11 +1,13 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef MESSAGE_DMALLOC_HPP
 #define MESSAGE_DMALLOC_HPP
+
+#include <sstream>
 
 #include "Message.hpp"
 
@@ -87,12 +89,14 @@ public:
 		return _content->_dimensions;
 	}
 	
-	//! \brief write to a stream a description of the Message
-	inline void toString(std::ostream &where) const
+	//! \brief Return a string with a description of the Message
+	inline std::string toString() const
 	{
-		where << "Distributed allocation of "
-			<< _content->_allocationSize
-			<< " bytes.";
+		std::stringstream ss;
+		
+		ss << "[size:" << _content->_allocationSize << "]";
+		
+		return ss.str();
 	}
 };
 

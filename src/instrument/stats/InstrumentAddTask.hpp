@@ -1,42 +1,95 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef INSTRUMENT_STATS_ADD_TASK_HPP
 #define INSTRUMENT_STATS_ADD_TASK_HPP
 
-
-#include "../api/InstrumentAddTask.hpp"
-
 #include "InstrumentStats.hpp"
+#include "instrument/api/InstrumentAddTask.hpp"
 
 
 namespace Instrument {
-	
-	inline task_id_t enterAddTask(
+
+	inline task_id_t enterCreateTask(
 		nanos6_task_info_t *taskInfo,
-		__attribute__((unused)) nanos6_task_invocation_info_t *taskInvokationInfo,
-		__attribute__((unused)) size_t flags,
-		__attribute__((unused)) InstrumentationContext const &context
+		nanos6_task_invocation_info_t *,
+		size_t,
+		bool,
+		InstrumentationContext const &context
 	) {
 		Stats::TaskTypeAndTimes *taskTypeAndTimes = new Stats::TaskTypeAndTimes(taskInfo, (context._taskId != task_id_t()));
+
 		return taskTypeAndTimes;
 	}
-	
-	inline void createdTask(__attribute__((unused)) void *task,
-		__attribute__((unused)) task_id_t taskId,
-		__attribute__((unused)) InstrumentationContext const &context
+
+	inline void exitCreateTask(
+		bool
 	) {
 	}
-	
-	inline void exitAddTask(
-		__attribute__((unused)) task_id_t taskId,
-		__attribute__((unused)) InstrumentationContext const &context
+
+	inline void createdArgsBlock(
+		task_id_t,
+		void *,
+		size_t,
+		size_t,
+		InstrumentationContext const &
 	) {
 	}
-	
+
+	inline void createdTask(
+		void *,
+		task_id_t,
+		InstrumentationContext const &
+	) {
+	}
+
+	inline void enterSubmitTask(
+		bool
+	) {
+	}
+
+	inline void exitSubmitTask(
+		task_id_t,
+		bool,
+		InstrumentationContext const &
+	) {
+	}
+
+	inline task_id_t enterInitTaskforCollaborator(
+		task_id_t,
+		nanos6_task_info_t *taskInfo,
+		nanos6_task_invocation_info_t *,
+		size_t,
+		InstrumentationContext const &context
+	) {
+		Stats::TaskTypeAndTimes *taskTypeAndTimes = new Stats::TaskTypeAndTimes(taskInfo, (context._taskId != task_id_t()));
+
+		return taskTypeAndTimes;
+	}
+
+	inline void exitInitTaskforCollaborator(
+		task_id_t, task_id_t,
+		InstrumentationContext const &
+	) {
+	}
+
+	inline void registeredNewSpawnedTaskType(
+		__attribute__((unused)) nanos6_task_info_t *taskInfo
+	) {
+	}
+
+	inline void enterSpawnFunction(
+		__attribute__((unused)) bool taskRuntimeTransition
+	) {
+	}
+
+	inline void exitSpawnFunction(
+		__attribute__ ((unused)) bool taskRuntimeTransition
+	) {
+	}
 }
 
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-#	
+#
 #	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
 
 
@@ -30,7 +30,7 @@ for type in $* ; do
 		else
 			fallback_name=NULL
 		fi
-	
+
 		echo "RESOLVE_API_FUNCTION_WITH_LOCAL_FALLBACK(nanos6_register_region_${type}_depinfo${dimensions}, \"multidimensional dependency\", NULL);"
 	done
 	echo

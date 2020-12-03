@@ -1,152 +1,108 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2019-2020 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef TASKLOOP_HPP
 #define TASKLOOP_HPP
 
-#include <iostream>
+#include <cmath>
 
 #include "tasks/Task.hpp"
 #include "tasks/TaskImplementation.hpp"
-#include "tasks/TaskloopInfo.hpp"
 
-#define MOD(a, b)  ((a) < 0 ? ((((a) % (b)) + (b)) % (b)) : ((a) % (b)))
 
 class Taskloop : public Task {
-private:
-	TaskloopInfo _taskloopInfo;
-	
 public:
-	typedef nanos6_taskloop_bounds_t bounds_t;
-	
+	typedef nanos6_loop_bounds_t bounds_t;
+
+private:
+	bounds_t _bounds;
+	bool _source;
+
+public:
 	inline Taskloop(
-		void *argsBlock, size_t argsBlockSize,
+		void *argsBlock,
+		size_t argsBlockSize,
 		nanos6_task_info_t *taskInfo,
 		nanos6_task_invocation_info_t *taskInvokationInfo,
 		Task *parent,
 		Instrument::task_id_t instrumentationTaskId,
 		size_t flags,
-		bool runnable = false
-	)
-		: Task(argsBlock, argsBlockSize, taskInfo, taskInvokationInfo, parent, instrumentationTaskId, flags),
-		_taskloopInfo()
+		const TaskDataAccessesInfo &taskAccessInfo,
+		void *taskCountersAddress,
+		void *taskStatistics
+	) :
+		Task(argsBlock, argsBlockSize,
+			taskInfo, taskInvokationInfo,
+			parent, instrumentationTaskId,
+			flags, taskAccessInfo,
+			taskCountersAddress,
+			taskStatistics),
+		_bounds(),
+		_source(false)
 	{
-		setRunnable(runnable);
-		setDelayedRelease(true);
-	}
-	
-	inline TaskloopInfo const &getTaskloopInfo() const
-	{
-		return _taskloopInfo;
-	}
-	
-	inline TaskloopInfo &getTaskloopInfo()
-	{
-		return _taskloopInfo;
-	}
-	
-	inline void body(
-		__attribute__((unused)) void *deviceEnvironment,
-		__attribute__((unused)) nanos6_address_translation_entry_t *translationTable = nullptr
-	) {
-		assert(hasCode());
-		assert(isRunnable());
-		assert(_thread != nullptr);
-		assert(deviceEnvironment == nullptr);
-		
-		Task *parent = getParent();
-		assert(parent != nullptr);
-		assert(parent->isTaskloop());
-		
-		run(*((Taskloop *)parent));
-	}
-	
-	inline void setRunnable(bool runnableValue)
-	{
-		_flags[Task::non_runnable_flag] = !runnableValue;
-	}
-	
-	inline void setDelayedRelease(bool delayedReleaseValue)
-	{
-		_flags[Task::wait_flag] = delayedReleaseValue;
-	}
-	
-	inline bool hasPendingIterations()
-	{
-		assert(!isRunnable());
-		
-		return (_taskloopInfo._remainingPartitions.load() > 0);
-	}
-	
-	inline void notifyCollaboratorHasStarted()
-	{
-		assert(!isRunnable());
-		
-		increaseRemovalBlockingCount();
-	}
-	
-	inline void notifyCollaboratorHasFinished()
-	{
-		assert(!isRunnable());
-		
-		decreaseRemovalBlockingCount();
 	}
 
-private:
-	inline int getPartitionCount()
+	inline void initialize(size_t lowerBound, size_t upperBound, size_t grainsize, size_t chunksize)
 	{
-		return _taskloopInfo.getPartitionCount();
-	}
-	
-	inline bool isDistributionFunctionEnabled()
-	{
-		EnvironmentVariable<int> distributionFunction("NANOS6_TASKLOOP_DISTRIBUTION_FUNCTION", 0);
-		int value = distributionFunction.getValue();
-		assert(value >= 0);
-		
-		return (value > 0);
-	}
-	
-	inline bool getPendingIterationsFromPartition(int partitionId, bounds_t &obtainedBounds)
-	{
-		assert(!isRunnable());
-		assert(partitionId >= 0);
-		assert(partitionId < getPartitionCount());
-		
-		bounds_t &bounds = _taskloopInfo._bounds;
-		const size_t step = bounds.step;
-		const size_t chunksize = bounds.chunksize;
-		const size_t steppedChunksize = step * chunksize;
-		
-		TaskloopPartition &partition = _taskloopInfo._partitions[partitionId];
-		const size_t originalUpperBound = partition.upperBound;
-		
-		const size_t lowerBound = std::atomic_fetch_add(&(partition.nextLowerBound), steppedChunksize);
-		
-		if (lowerBound < originalUpperBound) {
-			const size_t upperBound = std::min(lowerBound + steppedChunksize, originalUpperBound);
-			
-			obtainedBounds.lower_bound = lowerBound;
-			obtainedBounds.upper_bound = upperBound;
-			obtainedBounds.chunksize = chunksize;
-			obtainedBounds.step = step;
-			
-			if (upperBound >= originalUpperBound) {
-				--_taskloopInfo._remainingPartitions;
-			}
-			
-			return true;
+		_bounds.lower_bound = lowerBound;
+		_bounds.upper_bound = upperBound;
+		_bounds.grainsize = grainsize;
+		_bounds.chunksize = chunksize;
+		_source = true;
+
+		size_t totalIterations = getIterationCount();
+
+		// Set a implementation defined chunksize if needed
+		if (_bounds.grainsize == 0) {
+			_bounds.grainsize = std::max(totalIterations /CPUManager::getTotalCPUs(), (size_t) 1);
 		}
-		
-		return false;
 	}
-	
-	void getPartitionPath(int CPUId, std::vector<int> &partitionPath);
-	
-	void run(Taskloop &source);
+
+	inline bounds_t &getBounds()
+	{
+		return _bounds;
+	}
+
+	inline bounds_t const &getBounds() const
+	{
+		return _bounds;
+	}
+
+	inline size_t getIterationCount() const
+	{
+		return (_bounds.upper_bound - _bounds.lower_bound);
+	}
+
+	void body(nanos6_address_translation_entry_t * = nullptr) override;
+
+	inline void registerDependencies(bool discrete = false) override
+	{
+		if (discrete && isTaskloopSource()) {
+			size_t tasks = std::ceil((double) (_bounds.upper_bound - _bounds.lower_bound) / (double) _bounds.grainsize);
+			bounds_t tmpBounds;
+			for (size_t t = 0; t < tasks; t++) {
+				tmpBounds.lower_bound = _bounds.lower_bound + t * _bounds.grainsize;
+				tmpBounds.upper_bound = std::min(tmpBounds.lower_bound + _bounds.grainsize, _bounds.upper_bound);
+				getTaskInfo()->register_depinfo(getArgsBlock(), (void *) &tmpBounds, this);
+			}
+			assert(tmpBounds.upper_bound == _bounds.upper_bound);
+		} else {
+			getTaskInfo()->register_depinfo(getArgsBlock(), (void *) &_bounds, this);
+		}
+	}
+
+	inline bool isTaskloopSource() const override
+	{
+		return _source;
+	}
+
+	inline bool isTaskloopFor() const override
+	{
+		return isTaskfor();
+	}
 };
 
 #endif // TASKLOOP_HPP

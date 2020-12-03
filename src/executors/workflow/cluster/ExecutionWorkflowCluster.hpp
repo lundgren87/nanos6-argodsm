@@ -1,3 +1,9 @@
+/*
+	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+
+	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
+*/
+
 #ifndef EXECUTION_WORKFLOW_CLUSTER_HPP
 #define EXECUTION_WORKFLOW_CLUSTER_HPP
 
@@ -88,15 +94,25 @@ namespace ExecutionWorkflow {
 		//! A mapping of the address range in the source node to the target node.
 		RegionTranslation _targetTranslation;
 		
+		//! The task on behalf of which we perform the data copy
+		Task *_task;
+		
+		//! The data copy is for a taskwait
+		bool _isTaskwait;
+		
 	public:
 		ClusterDataCopyStep(
 			MemoryPlace const *sourceMemoryPlace,
 			MemoryPlace const *targetMemoryPlace,
-			RegionTranslation const &targetTranslation
+			RegionTranslation const &targetTranslation,
+			Task *task,
+			bool isTaskwait
 		) : Step(),
 			_sourceMemoryPlace(sourceMemoryPlace),
 			_targetMemoryPlace(targetMemoryPlace),
-			_targetTranslation(targetTranslation)
+			_targetTranslation(targetTranslation),
+			_task(task),
+			_isTaskwait(isTaskwait)
 		{
 		}
 		
@@ -357,7 +373,8 @@ namespace ExecutionWorkflow {
 			   ){
 				return new ArgoAcquireStep(access->getAccessRegion());
 			}else{
-				return new ClusterDataCopyStep(source, target, translation);
+				return new ClusterDataCopyStep(source, target, translation,
+						access->getOriginator(), (objectType == taskwait_type));
 			}
 		}
 		

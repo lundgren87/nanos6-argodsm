@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+#	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+#
+#	Copyright (C) 2020 Barcelona Supercomputing Center (BSC)
+#
+
+usage() {
+	echo "usage: ctfstats <ctf_trace_directory>"
+}
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+CTFPLUGINS=$DIR/../share/doc/nanos6/scripts/ctf/plugins
+CTFPLUGINS=$CTFPLUGINS:$DIR/plugins
+export PYTHONPATH=$PYTHONPATH:$CTFPLUGINS
+
+if [ $# -ne 1 ]; then
+	usage
+	exit 1
+fi
+
+if [[ ! $(type -P "babeltrace2") ]]; then
+	>&2 echo "The babeltrace2 tool is not in the system path. ctf stats cannot be calculated.";
+	exit 1;
+fi
+
+CTF_USER_TRACE_PATH=`readlink -f $1/ctf/ust/uid/*/64-bit`
+CTF_KERNEL_TRACE_PATH=`readlink -f $1/ctf/kernel`
+
+if [ ! -f $CTF_USER_TRACE_PATH/metadata ]; then
+	>&2 echo "Error: The supplied input does not appear to be a CTF trace"
+	exit 1
+fi
+
+KERNEL_TRACE_FOUND=1
+if [ ! -f $CTF_KERNEL_TRACE_PATH/metadata ]; then
+	KERNEL_TRACE_FOUND=0
+fi
+
+if [ $KERNEL_TRACE_FOUND -eq 1 ]; then
+	babeltrace2 --plugin-path="$CTFPLUGINS"            \
+		-c source.ctf.fs                               \
+		--params="inputs=[\"$CTF_USER_TRACE_PATH\"]"   \
+		-c source.ctf.fs                               \
+		--params="inputs=[\"$CTF_KERNEL_TRACE_PATH\"]" \
+		-c sink.nanos6.stats
+else
+	babeltrace2 --plugin-path="$CTFPLUGINS"            \
+		-c source.ctf.fs                               \
+		--params="inputs=[\"$CTF_USER_TRACE_PATH\"]"   \
+		-c sink.nanos6.stats
+fi

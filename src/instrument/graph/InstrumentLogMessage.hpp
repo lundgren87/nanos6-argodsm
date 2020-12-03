@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
 */
 
@@ -16,7 +16,7 @@
 #include "InstrumentExternalThreadLocalData.hpp"
 #include "InstrumentGraph.hpp"
 #include "InstrumentTaskId.hpp"
-#include "../api/InstrumentLogMessage.hpp"
+#include "instrument/api/InstrumentLogMessage.hpp"
 
 #include <InstrumentInstrumentationContext.hpp>
 

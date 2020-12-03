@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2018 Barcelona Supercomputing Center (BSC)
 */
 
@@ -12,6 +12,7 @@
 
 #include <ClusterMemoryNode.hpp>
 #include <ClusterNode.hpp>
+#include "DataAccessRegion.hpp"
 
 class Message;
 class DataTransfer;
@@ -26,6 +27,10 @@ public:
 	};
 	
 	static inline void initialize()
+	{
+	}
+	
+	static inline void notifyShutdown()
 	{
 	}
 	
@@ -77,14 +82,10 @@ public:
 		return nullptr;
 	}
 	
-	static inline void testMessageCompletion(
-		__attribute__((unused)) std::vector<Message *> &messages
-	) {
+	static inline void testMessageCompletion(__attribute__((unused)) std::vector<Message *> &messages) {
 	}
 	
-	static inline void testDataTransferCompletion(
-		__attribute__((unused)) std::vector<Message *> &transfer
-	) {
+	static inline void testDataTransferCompletion(__attribute__((unused)) std::vector<Message *> &transfer) {
 	}
 	
 	static inline DataTransfer *fetchDataRaw(

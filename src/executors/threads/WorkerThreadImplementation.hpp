@@ -1,7 +1,7 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2019 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef WORKER_THREAD_IMPLEMENTATION_HPP
@@ -14,39 +14,44 @@
 #include "DependencyDomain.hpp"
 #include "WorkerThread.hpp"
 #include "WorkerThreadBase.hpp"
-#include "instrument/stats/InstrumentHardwareCountersThreadLocalData.hpp"
 
 #include <InstrumentThreadManagement.hpp>
 
 
-inline WorkerThread::WorkerThread(CPU * cpu)
-	: WorkerThreadBase(cpu), _mustShutDown(false), _task(nullptr), _dependencyDomain(),
-	_hardwareCounters(), _instrumentationData(), _threadCounters()
+inline WorkerThread::WorkerThread(CPU *cpu)
+	: WorkerThreadBase(cpu), _task(nullptr), _dependencyDomain(),
+	_instrumentationData(), _hwCounters(), _replacementCount(0)
 {
-	_originalNumaNode = cpu->_NUMANodeId;
+	_originalNumaNode = cpu->getNumaNodeId();
 	Instrument::enterThreadCreation(/* OUT */ _instrumentationId, cpu->getInstrumentationId());
 	WorkerThreadBase::start();
 	Instrument::exitThreadCreation(_instrumentationId);
 }
 
-
 inline WorkerThread::~WorkerThread()
 {
+	_hwCounters.shutdown();
 }
-
 
 inline Task *WorkerThread::getTask()
 {
 	return _task;
 }
 
-
 inline void WorkerThread::setTask(Task *task)
 {
 	assert(_task == nullptr);
+
 	_task = task;
 }
 
+inline Task *WorkerThread::unassignTask()
+{
+	Task *currentTask = _task;
+	_task = nullptr;
+
+	return currentTask;
+}
 
 inline DependencyDomain const *WorkerThread::getDependencyDomain() const
 {
@@ -58,49 +63,31 @@ inline DependencyDomain *WorkerThread::getDependencyDomain()
 	return &_dependencyDomain;
 }
 
-
-inline HardwareCountersThreadLocalData &WorkerThread::getHardwareCounters()
-{
-	return _hardwareCounters;
-}
-
 inline Instrument::ThreadLocalData &WorkerThread::getInstrumentationData()
 {
 	return _instrumentationData;
 }
 
-
 inline void WorkerThread::handleTask(CPU *cpu, Task *task)
 {
 	assert(task != nullptr);
-	
+
 	// Save current task
 	Task *oldTask = _task;
 	assert(task != oldTask);
-	
+
 	// Run the task
 	_task = task;
 	handleTask(cpu);
-	
+
 	// Restore the initial task
 	_task = oldTask;
-}
-
-
-inline void WorkerThread::signalShutdown()
-{
-	_mustShutDown = true;
-}
-
-inline bool WorkerThread::hasPendingShutdown()
-{
-	return _mustShutDown;
 }
 
 inline WorkerThread *WorkerThread::getCurrentWorkerThread()
 {
 	WorkerThreadBase *thread = WorkerThreadBase::getCurrentWorkerThread();
-	
+
 	if (thread == nullptr) {
 		return nullptr;
 	} else if (typeid(*thread) == typeid(WorkerThread)) {
@@ -110,19 +97,17 @@ inline WorkerThread *WorkerThread::getCurrentWorkerThread()
 	}
 }
 
-inline ThreadHardwareCounters *WorkerThread::getThreadHardwareCounters()
+inline ThreadHardwareCounters &WorkerThread::getHardwareCounters()
 {
-	return &(_threadCounters);
+	return _hwCounters;
 }
-
-
 
 #ifndef NDEBUG
 namespace ompss_debug {
 	__attribute__((weak)) WorkerThread *getCurrentWorkerThread()
 	{
 		WorkerThread *current = WorkerThread::getCurrentWorkerThread();
-		
+
 		if (current == nullptr) {
 			return (WorkerThread *) ~0UL;
 		} else {
@@ -131,6 +116,27 @@ namespace ompss_debug {
 	}
 }
 #endif
+
+
+inline bool WorkerThread::isTaskReplaceable() const
+{
+	return (_replacementCount < _maxReplaceCount);
+}
+
+inline void WorkerThread::replaceTask(Task *task)
+{
+	++_replacementCount;
+	assert(_replacementCount <= _maxReplaceCount);
+
+	_task = task;
+}
+
+inline void WorkerThread::restoreTask(Task *task)
+{
+	--_replacementCount;
+
+	_task = task;
+}
 
 
 #endif // WORKER_THREAD_IMPLEMENTATION_HPP

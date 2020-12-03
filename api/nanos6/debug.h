@@ -1,12 +1,11 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
 #ifndef NANOS6_DEBUG_H
 #define NANOS6_DEBUG_H
-
 
 #include "major.h"
 
@@ -16,7 +15,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 //! \brief returns the path of the runtime
 //! For instance "/apps/PM/ompss/git/lib/libnanos6-optimized.so"
@@ -56,8 +54,12 @@ char const *nanos6_get_runtime_compiler_flags(void);
 //! This function can be called from within used code, most probably from "main"
 void nanos6_wait_for_full_initialization(void);
 
-//! \brief get the number of CPUs that were enabled when the program started
+//! \brief Get the number of CPUs that were enabled when the program started
 unsigned int nanos6_get_num_cpus(void);
+
+//! \brief Get the total number of CPUs available to the runtime
+//! This function behaves as nanos6_get_num_cpus if DLB is disabled
+unsigned int nanos6_get_total_num_cpus(void);
 
 //! \brief get the operating system assigned identifier of the CPU where the call to this function originated
 long nanos6_get_current_system_cpu(void);
@@ -65,19 +67,32 @@ long nanos6_get_current_system_cpu(void);
 //! \brief get a CPU identifier assigned to the CPU where the call to this function originated that starts from 0 up to nanos6_get_num_cpus(void)-1
 unsigned int nanos6_get_current_virtual_cpu(void);
 
-//! \brief enable a previously stopped CPU
-void nanos6_enable_cpu(long systemCPUId);
+//! \brief Enable a previously stopped CPU
+//!
+//! \param[in] systemCPUId The id of the CPU to enable
+//! \return Whether the CPU became enabled
+int nanos6_enable_cpu(long systemCPUId);
 
-//! \brief disable an enabled CPU
-void nanos6_disable_cpu(long systemCPUId);
+//! \brief Disable an enabled CPU
+//!
+//! \param[in] systemCPUId The id of the CPU to disable
+//! \return Whether the CPU became disabled
+int nanos6_disable_cpu(long systemCPUId);
 
 typedef enum {
 	nanos6_invalid_cpu_status,
-	nanos6_starting_cpu,
-	nanos6_enabling_cpu,
+	nanos6_uninitialized_cpu,
 	nanos6_enabled_cpu,
+	nanos6_enabling_cpu,
+	nanos6_disabled_cpu,
 	nanos6_disabling_cpu,
-	nanos6_disabled_cpu
+	nanos6_lent_cpu,
+	nanos6_lending_cpu,
+	nanos6_acquired_cpu,
+	nanos6_acquired_enabled_cpu,
+	nanos6_returned_cpu,
+	nanos6_shutting_down_cpu,
+	nanos6_shutdown_cpu
 } nanos6_cpu_status_t;
 
 //! \brief retrieve the runtime view of a given CPU identified by the identifier given by the operating system
@@ -101,6 +116,11 @@ long nanos6_cpus_get(void *cpuIterator);
 //! \brief retrieve the runtime-assigned identifier to the CPU pointed to by the iterator
 long nanos6_cpus_get_virtual(void *cpuIterator);
 
+//! \brief retrieve the NUMA identifier where the CPU pointed to by the iterator is located
+long nanos6_cpus_get_numa(void *cpuIterator);
+
+//! \brief Check whether DLB is enabled
+int nanos6_is_dlb_enabled(void);
 
 #ifdef __cplusplus
 }

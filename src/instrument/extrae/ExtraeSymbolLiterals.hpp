@@ -1,6 +1,6 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
+
 	Copyright (C) 2017 Barcelona Supercomputing Center (BSC)
 */
 
@@ -14,6 +14,7 @@
 namespace Instrument {
 	extern const StringLiteral _Extrae_change_num_threads_symbolName;
 	extern const StringLiteral _Extrae_define_event_type_symbolName;
+	extern const StringLiteral _Extrae_event_symbolName;
 	extern const StringLiteral _Extrae_emit_CombinedEvents_symbolName;
 	extern const StringLiteral _Extrae_fini_symbolName;
 	extern const StringLiteral _Extrae_get_version_symbolName;

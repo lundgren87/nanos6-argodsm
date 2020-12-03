@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-#	
+#
 #	Copyright (C) 2015-2017 Barcelona Supercomputing Center (BSC)
 
 
@@ -48,7 +48,7 @@ for type in $* ; do
 	if [ "${type}" = "reduction" ] || [ "${type}" = "weak_reduction" ] ; then
 		continue
 	fi
-	
+
 	for dimensions in $(seq 1 ${maxdimensions}) ; do
 		generate_release_full_prototype ${dimensions} ${type}
 		echo ";"

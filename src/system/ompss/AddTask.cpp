@@ -1,7 +1,7 @@
 /*
 	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
-	
-	Copyright (C) 2015-2019 Barcelona Supercomputing Center (BSC)
+
+	Copyright (C) 2015-2020 Barcelona Supercomputing Center (BSC)
 */
 
 // This is for posix_memalign
@@ -9,166 +9,293 @@
 #define _XOPEN_SOURCE 600
 #endif
 
-#include <nanos6.h>
-#include "executors/threads/ThreadManager.hpp"
-#include "executors/threads/WorkerThread.hpp"
-#include "hardware/places/ComputePlace.hpp"
-#include "lowlevel/FatalErrorHandler.hpp"
-#include "MemoryAllocator.hpp"
-#include "scheduling/Scheduler.hpp"
-#include "system/If0Task.hpp"
-#include "tasks/Task.hpp"
-#include "tasks/TaskImplementation.hpp"
-#include "tasks/Taskloop.hpp"
-#include "tasks/TaskloopInfo.hpp"
-
-#include <DataAccessRegistration.hpp>
-#include <HardwareCounters.hpp>
-#include <InstrumentAddTask.hpp>
-#include <InstrumentTaskStatus.hpp>
-#include <InstrumentThreadInstrumentationContext.hpp>
-#include <Monitoring.hpp>
-
 #include <cassert>
 #include <cstdlib>
 
+#include <nanos6.h>
+
+#include "AddTask.hpp"
+#include "executors/threads/ThreadManager.hpp"
+#include "executors/threads/WorkerThread.hpp"
+#include "hardware/HardwareInfo.hpp"
+#include "hardware/places/ComputePlace.hpp"
+#include "hardware-counters/TaskHardwareCounters.hpp"
+#include "lowlevel/FatalErrorHandler.hpp"
+#include "monitoring/Monitoring.hpp"
+#include "scheduling/Scheduler.hpp"
+#include "system/If0Task.hpp"
+#include "system/Throttle.hpp"
+#include "tasks/StreamExecutor.hpp"
+#include "tasks/Task.hpp"
+#include "tasks/Taskfor.hpp"
+#include "tasks/TaskImplementation.hpp"
+#include "tasks/Taskloop.hpp"
+
+#include <DataAccessRegistration.hpp>
+#include <InstrumentAddTask.hpp>
+#include <InstrumentTaskStatus.hpp>
+#include <InstrumentThreadInstrumentationContext.hpp>
+#include <MemoryAllocator.hpp>
+#include <TaskDataAccesses.hpp>
+#include <TaskDataAccessesInfo.hpp>
+
 
 #define DATA_ALIGNMENT_SIZE sizeof(void *)
-#define TASK_ALIGNMENT 128
 
-void nanos6_create_task(
+Task *AddTask::createTask(
 	nanos6_task_info_t *taskInfo,
 	nanos6_task_invocation_info_t *taskInvocationInfo,
-	size_t args_block_size,
-	void **args_block_pointer,
-	void **task_pointer,
+	void *argsBlock,
+	size_t argsBlockSize,
 	size_t flags,
-	__attribute__((unused)) size_t num_deps
+	size_t numDependencies,
+	bool fromUserCode
 ) {
-	assert(taskInfo->implementation_count == 1); //TODO: Temporary check until multiple implementations are supported
-	
-	Instrument::task_id_t taskId = Instrument::enterAddTask(taskInfo, taskInvocationInfo, flags);
-	
-	WorkerThread *currentWorkerThread = WorkerThread::getCurrentWorkerThread();
-	if (currentWorkerThread != nullptr) {
-		Task *parent = currentWorkerThread->getTask();
-		if (parent != nullptr) {
-			Monitoring::taskChangedStatus(parent, runtime_status, currentWorkerThread->getComputePlace());
-			HardwareCounters::stopTaskMonitoring(parent);
-		}
+	Task *task = nullptr;
+	Task *creator = nullptr;
+
+	WorkerThread *workerThread = WorkerThread::getCurrentWorkerThread();
+	if (workerThread != nullptr) {
+		creator = workerThread->getTask();
 	}
-	
-	// Operate directly over references to the user side variables
-	void *&args_block = *args_block_pointer;
-	void *&task = *task_pointer;
-	
-	bool isTaskloop = flags & nanos6_task_flag_t::nanos6_taskloop_task;
-	size_t originalArgsBlockSize = args_block_size;
-	size_t taskSize = (isTaskloop) ? sizeof(Taskloop) : sizeof(Task);
-	
+	// See taskRuntimeTransition variable note in spawnFunction() for more details
+	bool taskRuntimeTransition = fromUserCode && (creator != nullptr);
+	if (taskRuntimeTransition) {
+		HardwareCounters::updateTaskCounters(creator);
+		Monitoring::taskChangedStatus(creator, paused_status);
+	}
+	Instrument::task_id_t taskId = Instrument::enterCreateTask(taskInfo, taskInvocationInfo, flags, taskRuntimeTransition);
+
+	//! Throttle. If active, act as a taskwait
+	if (Throttle::isActive() && creator != nullptr) {
+		assert(workerThread != nullptr);
+		// We will try to execute something else instead of creating more memory pressure
+		// on the system
+		while (Throttle::engage(creator, workerThread));
+	}
+
+	bool isTaskfor = flags & nanos6_taskfor_task;
+	bool isTaskloop = flags & nanos6_taskloop_task;
+	bool isTaskloopFor = (isTaskloop && isTaskfor);
+	bool isStreamExecutor = flags & (1 << Task::stream_executor_flag);
+	size_t originalArgsBlockSize = argsBlockSize;
+	size_t taskSize;
+
+	// A taskloop for construct enables both taskloop and taskfor flags, but we must
+	// create a taskloop. Notice we first check the taskloop condition
+	if (isTaskloop || isTaskloopFor) {
+		taskSize = sizeof(Taskloop);
+	} else if (isTaskfor) {
+		taskSize = sizeof(Taskfor);
+	} else if (isStreamExecutor) {
+		taskSize = sizeof(StreamExecutor);
+	} else {
+		taskSize = sizeof(Task);
+	}
+
+	TaskDataAccessesInfo taskAccesses(numDependencies);
+	size_t taskAccessesSize = taskAccesses.getAllocationSize();
+	size_t taskCountersSize = TaskHardwareCounters::getAllocationSize();
+	size_t taskStatisticsSize = Monitoring::getAllocationSize();
+
 	bool hasPreallocatedArgsBlock = (flags & nanos6_preallocated_args_block);
-	
 	if (hasPreallocatedArgsBlock) {
-		assert(args_block != nullptr);
-		task = MemoryAllocator::alloc(taskSize);
+		assert(argsBlock != nullptr);
+		task = (Task *) MemoryAllocator::alloc(taskSize
+			+ taskAccessesSize
+			+ taskCountersSize
+			+ taskStatisticsSize);
 	} else {
 		// Alignment fixup
-		size_t missalignment = args_block_size & (DATA_ALIGNMENT_SIZE - 1);
+		size_t missalignment = argsBlockSize & (DATA_ALIGNMENT_SIZE - 1);
 		size_t correction = (DATA_ALIGNMENT_SIZE - missalignment) & (DATA_ALIGNMENT_SIZE - 1);
-		args_block_size += correction;
-		
+		argsBlockSize += correction;
+
 		// Allocation and layout
-		*args_block_pointer = MemoryAllocator::alloc(args_block_size + taskSize);
-		
-		task = (char *)args_block + args_block_size;
+		argsBlock = MemoryAllocator::alloc(argsBlockSize + taskSize
+			+ taskAccessesSize
+			+ taskCountersSize
+			+ taskStatisticsSize);
+		task = (Task *) ((char *) argsBlock + argsBlockSize);
 	}
-	
-	if (isTaskloop) {
-		new (task) Taskloop(args_block, originalArgsBlockSize, taskInfo, taskInvocationInfo, nullptr, taskId, flags);
+
+	Instrument::createdArgsBlock(taskId, argsBlock, originalArgsBlockSize, argsBlockSize);
+
+	taskAccesses.setAllocationAddress((char *) task + taskSize);
+
+	void *taskCountersAddress = (taskCountersSize > 0) ?
+		(char *) task + taskSize + taskAccessesSize : nullptr;
+
+	void *taskStatisticsAddress = (taskStatisticsSize > 0) ?
+		(char *) task + taskSize + taskAccessesSize + taskCountersSize : nullptr;
+
+	if (isTaskloop || isTaskloopFor) {
+		new (task) Taskloop(argsBlock, originalArgsBlockSize,
+			taskInfo, taskInvocationInfo, nullptr, taskId,
+			flags, taskAccesses, taskCountersAddress, taskStatisticsAddress);
+	} else if (isTaskfor) {
+		// Taskfors are always final
+		flags |= nanos6_final_task;
+
+		new (task) Taskfor(argsBlock, originalArgsBlockSize,
+			taskInfo, taskInvocationInfo, nullptr, taskId,
+			flags, taskAccesses, taskCountersAddress, taskStatisticsAddress);
+	} else if (isStreamExecutor) {
+		new (task) StreamExecutor(argsBlock, originalArgsBlockSize,
+			taskInfo, taskInvocationInfo, nullptr, taskId, flags,
+			taskAccesses, taskCountersAddress, taskStatisticsAddress);
 	} else {
-		// Construct the Task object
-		new (task) Task(args_block, originalArgsBlockSize, taskInfo, taskInvocationInfo, /* Delayed to the submit call */ nullptr, taskId, flags);
+		new (task) Task(argsBlock, originalArgsBlockSize,
+			taskInfo, taskInvocationInfo, nullptr, taskId,
+			flags, taskAccesses, taskCountersAddress, taskStatisticsAddress);
 	}
-	
+
+	Instrument::exitCreateTask(taskRuntimeTransition);
+
+	return task;
 }
 
-
-void nanos6_submit_task(void *taskHandle)
+void AddTask::submitTask(Task *task, Task *parent, bool fromUserCode)
 {
-	Task *task = (Task *) taskHandle;
 	assert(task != nullptr);
-	
+
 	Instrument::task_id_t taskInstrumentationId = task->getInstrumentationTaskId();
-	
-	Task *parent = nullptr;
-	WorkerThread *currentWorkerThread = WorkerThread::getCurrentWorkerThread();
+
+	Task *creator = nullptr;
+	WorkerThread *workerThread = WorkerThread::getCurrentWorkerThread();
 	ComputePlace *computePlace = nullptr;
-	
-	//! A WorkerThread might spawn a remote task through a polling service,
-	//! i.e. while not executing a Task already. So here, we need to check
-	//! both, if we are running from inside a WorkerThread as well as if
-	//! we are running a Task
-	if (currentWorkerThread != nullptr && currentWorkerThread->getTask() != nullptr) {
-		parent = currentWorkerThread->getTask();
-		assert(parent != nullptr);
-		
-		computePlace = currentWorkerThread->getComputePlace();
+
+	// Retrieve the current compute place
+	if (workerThread != nullptr) {
+		computePlace = workerThread->getComputePlace();
 		assert(computePlace != nullptr);
-		
-		task->setParent(parent);
+
+		// There could be no creator
+		creator = workerThread->getTask();
 	}
-	
-	Instrument::createdTask(task, taskInstrumentationId);
-	
+
+	// See taskRuntimeTransition variable note in spawnFunction() for more details
+	bool taskRuntimeTransition = fromUserCode && (creator != nullptr);
+	Instrument::enterSubmitTask(taskRuntimeTransition);
+
+	if (parent != nullptr) {
+		task->setParent(parent);
+
+		if (parent->isStreamExecutor()) {
+			// Check if we need to save the spawned function's id for a future
+			// trigger of a callback (spawned stream functions)
+			StreamExecutor *executor = (StreamExecutor *) parent;
+			StreamFunctionCallback *callback = executor->getCurrentFunctionCallback();
+
+			if (callback != nullptr) {
+				task->setParentSpawnCallback(callback);
+				executor->increaseCallbackParticipants(callback);
+			}
+		}
+	}
+
 	HardwareCounters::taskCreated(task);
+	Instrument::createdTask(task, taskInstrumentationId);
 	Monitoring::taskCreated(task);
-	
+
+	// Compute the task priority only when the scheduler is
+	// considering the task priorities
+	if (Scheduler::isPriorityEnabled()) {
+		if (task->computePriority()) {
+			Instrument::taskHasNewPriority(
+				task->getInstrumentationTaskId(),
+				task->getPriority());
+		}
+	}
+
 	bool ready = true;
 	nanos6_task_info_t *taskInfo = task->getTaskInfo();
 	assert(taskInfo != 0);
 	if (taskInfo->register_depinfo != 0) {
+		assert(computePlace != nullptr);
+
+		// Begin as pending status, become ready later, through the scheduler
 		Instrument::ThreadInstrumentationContext instrumentationContext(taskInstrumentationId);
+		Instrument::taskIsPending(taskInstrumentationId);
+
 		ready = DataAccessRegistration::registerTaskDataAccesses(task, computePlace, computePlace->getDependencyData());
 	}
-	
+
+	bool executesInDevice = (task->getDeviceType() != nanos6_host_device);
 	bool isIf0 = task->isIf0();
-	
-	if (ready && !isIf0) {
-		// Queue the task if ready but not if0
-		SchedulerInterface::ReadyTaskHint schedulingHint = SchedulerInterface::NO_HINT;
-		
-		if (currentWorkerThread != nullptr) {
-			schedulingHint = SchedulerInterface::CHILD_TASK_HINT;
-		}
-		
-		ComputePlace *idleComputePlace = Scheduler::addReadyTask(task, computePlace, schedulingHint);
-		
-		if (idleComputePlace != nullptr) {
-			ThreadManager::resumeIdle((CPU *) idleComputePlace);
-		}
-	} else if (!ready) {
-		Instrument::taskIsPending(taskInstrumentationId);
-		
-		Monitoring::taskChangedStatus(task, pending_status);
-		HardwareCounters::stopTaskMonitoring(task);
+
+	assert(parent != nullptr || ready);
+	assert(parent != nullptr || !isIf0);
+
+	if (ready && (!isIf0 || executesInDevice)) {
+		// Queue the task if ready and not if0. Device if0 ready tasks must be
+		// queued too; they are managed by the device scheduling infrastructure
+		ReadyTaskHint hint = (parent != nullptr) ? CHILD_TASK_HINT : NO_HINT;
+
+		Scheduler::addReadyTask(task, computePlace, hint);
 	}
-	
-	if (parent != nullptr) {
-		HardwareCounters::startTaskMonitoring(parent);
-		Monitoring::taskChangedStatus(parent, executing_status, currentWorkerThread->getComputePlace());
-	}
-	
-	Instrument::exitAddTask(taskInstrumentationId);
-	
+
 	// Special handling for if0 tasks
 	if (isIf0) {
-		if (ready) {
-			// Ready if0 tasks are executed inline
-			If0Task::executeInline(currentWorkerThread, parent, task, computePlace);
+		if (ready && !executesInDevice) {
+			// Ready if0 tasks are executed inline, if they are not device tasks
+			If0Task::executeInline(workerThread, parent, task, computePlace);
 		} else {
 			// Non-ready if0 tasks cause this thread to get blocked
-			If0Task::waitForIf0Task(currentWorkerThread, parent, task, computePlace);
+			If0Task::waitForIf0Task(workerThread, parent, task, computePlace);
 		}
+	}
+
+	if (taskRuntimeTransition) {
+		HardwareCounters::updateRuntimeCounters();
+		Instrument::exitSubmitTask(taskInstrumentationId, taskRuntimeTransition);
+		Monitoring::taskChangedStatus(creator, executing_status);
+	} else {
+		Instrument::exitSubmitTask(taskInstrumentationId, taskRuntimeTransition);
 	}
 }
 
+
+//! Public API function to create tasks
+void nanos6_create_task(
+	nanos6_task_info_t *task_info,
+	nanos6_task_invocation_info_t *task_invocation_info,
+	size_t args_block_size,
+	void **args_block_pointer,
+	void **task_pointer,
+	size_t flags,
+	size_t num_deps
+) {
+	//TODO: Temporary check until multiple implementations are supported
+	assert(task_info->implementation_count == 1);
+
+	nanos6_device_t deviceType = (nanos6_device_t) task_info->implementations[0].device_type_id;
+	if (!HardwareInfo::canDeviceRunTasks(deviceType)) {
+		FatalErrorHandler::fail("No hardware associated for task device type", deviceType);
+	}
+
+	Task *task = AddTask::createTask(
+		task_info, task_invocation_info,
+		*args_block_pointer, args_block_size,
+		flags, num_deps, true
+	);
+	assert(task != nullptr);
+
+	*task_pointer = (void *) task;
+	*args_block_pointer = task->getArgsBlock();
+}
+
+//! Public API function to submit tasks
+void nanos6_submit_task(void *task_handle)
+{
+	Task *task = (Task *) task_handle;
+	assert(task != nullptr);
+
+	WorkerThread *workerThread = WorkerThread::getCurrentWorkerThread();
+	assert(workerThread != nullptr);
+
+	Task *parent = workerThread->getTask();
+	assert(parent != nullptr);
+
+	AddTask::submitTask(task, parent, true);
+}

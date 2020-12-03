@@ -1,3 +1,9 @@
+/*
+	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+
+	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
+*/
+
 #ifndef __EXECUTION_WORKFLOW_HPP__
 #define __EXECUTION_WORKFLOW_HPP__
 
@@ -8,7 +14,7 @@
 #include "ExecutionStep.hpp"
 
 class ComputePlace;
-class DataAccess;
+struct DataAccess;
 class MemoryPlace;
 class Task;
 

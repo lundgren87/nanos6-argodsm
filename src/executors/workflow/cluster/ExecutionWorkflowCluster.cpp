@@ -1,9 +1,16 @@
+/*
+	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+
+	Copyright (C) 2019 Barcelona Supercomputing Center (BSC)
+*/
+
 #include "ExecutionWorkflowCluster.hpp"
 #include "tasks/Task.hpp"
 
 #include <ClusterManager.hpp>
 #include <ClusterPollingServices.hpp>
 #include <DataAccess.hpp>
+#include <DataAccessRegistration.hpp>
 #include <DataTransfer.hpp>
 #include <Directory.hpp>
 #include <InstrumentLogMessage.hpp>
@@ -142,6 +149,11 @@ namespace ExecutionWorkflow {
 		
 		dt->setCompletionCallback(
 			[&]() {
+				//! If this data copy is performed for a taskwait we
+				//! don't need to update the location here.
+				DataAccessRegistration::updateTaskDataAccessLocation(
+						_task, _targetTranslation._hostRegion,
+						_targetMemoryPlace, _isTaskwait);
 				this->releaseSuccessors();
 				delete this;
 			}
