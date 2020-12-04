@@ -22,18 +22,18 @@
 ArgoMessenger::ArgoMessenger()
 {
 	int ret;
-	unsigned long distribSize, cacheSize;
+	std::size_t distribSize, cacheSize;
 
 	//! Get the requested ArgoDSM distributed memory and cache sizes
-	ConfigVariable<std::string> distribSizeConfig("argo.distributed_memory", (1UL << 29));
+	ConfigVariable<StringifiedMemorySize> distribSizeConfig("argo.distributed_memory", (1UL << 29));
 	distribSize = distribSizeConfig.getValue();
-	ConfigVariable<std::string> cacheSizeConfig("argo.cache_size", 0);
+	ConfigVariable<StringifiedMemorySize> cacheSizeConfig("argo.cache_size", 0);
 	cacheSize = cacheSizeConfig.getValue();
 	cacheSize = (cacheSize > 0) ? cacheSize : distribSize;
 
 	//! Initialize ArgoDSM and print confirmation
 	argo::init(distribSize, cacheSize);
-	printf("Node %d: ArgoDSM initialized with %luMb distributed memory.\n", argo::node_id(), argo::backend::global_size()/(1024*1024);
+	printf("Node %d: ArgoDSM initialized with %luMb distributed memory.\n", argo::node_id(), argo::backend::global_size()/(1024*1024));
 	
 	//! make sure that MPI errors are returned in the COMM_WORLD
 	ret = MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_RETURN);
