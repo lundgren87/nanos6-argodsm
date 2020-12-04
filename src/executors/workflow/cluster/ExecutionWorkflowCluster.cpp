@@ -205,10 +205,28 @@ namespace ExecutionWorkflow {
 
 	void ArgoAcquireStep::start()
 	{
+		assert(ClusterManager::getCurrentMemoryNode() == _targetMemoryPlace);
+
+		//! TODO: Is this unsafe? Can we trust that we have the data, or do
+		//! we have to complete a dt (dataTransfer) for this to be safe?
+
+		//! No data transfer needed, data is already here.
+		if (_sourceMemoryPlace == _targetMemoryPlace) {
+			releaseSuccessors();
+			delete this;
+			return;
+		}
+
+		Instrument::logMessage(
+			Instrument::ThreadInstrumentationContext::getCurrent(),
+			"ArgoAcquireStep emulating transfer of data from Node:",
+			_sourceMemoryPlace->getIndex()
+		);
+
 		/* Perform the ArgoDSM acquire or selective_si equivalent */
 		//TODO: Better way of choosing between acquire and selective coherence
 		argo::backend::acquire();
-		//selective_si(_dataAccess.getStartAddress(), _dataAccess.getSize());
+		//selective_si(_region.getStartAddress(), _region.getSize());
 
 		releaseSuccessors();
 		delete this;
@@ -279,7 +297,7 @@ namespace ExecutionWorkflow {
 			MemoryPlace const *location,
 			bool read,
 			bool write
-			) {
+	) {
 		assert(_targetMemoryPlace != nullptr);
 
 		/* Perform the ArgoDSM release or selective_sd equivalent */
@@ -320,7 +338,7 @@ namespace ExecutionWorkflow {
 		assert(_sourceMemoryPlace != nullptr);
 		Instrument::logMessage(
 				Instrument::ThreadInstrumentationContext::getCurrent(),
-				"ClusterDataLinkStep for MessageTaskNew. ",
+				"ArgoDataLinkStep for MessageTaskNew. ",
 				"Current location of ", _region,
 				" Node:", _sourceMemoryPlace->getIndex()
 				);

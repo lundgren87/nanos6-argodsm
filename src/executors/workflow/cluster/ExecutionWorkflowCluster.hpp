@@ -194,13 +194,24 @@ namespace ExecutionWorkflow {
 	};
 
 	class ArgoAcquireStep : public Step {
-		DataAccessRegion _dataAccess;
+		//! The MemoryPlace that the data will be copied from.
+		MemoryPlace const *_sourceMemoryPlace;
 
-		public:
+		//! The MemoryPlace that the data will be copied to.
+		MemoryPlace const *_targetMemoryPlace;
+
+		//! The DataAccessRegion corresponding to this data release
+		DataAccessRegion _region;
+
+	public:
 		ArgoAcquireStep(
-				DataAccessRegion const &dataAccess
-				) : Step(),
-		_dataAccess(dataAccess)
+			MemoryPlace const *sourceMemoryPlace,
+			MemoryPlace const *targetMemoryPlace,
+			DataAccessRegion const &region
+		) : Step(),
+			_sourceMemoryPlace(sourceMemoryPlace),
+			_targetMemoryPlace(targetMemoryPlace),
+			_region(region)
 		{
 		}
 
@@ -230,13 +241,13 @@ namespace ExecutionWorkflow {
 			//! the cluster node we need to notify
 			ClusterNode const *_offloader;
 
-			public:
+		public:
 			ArgoReleaseStep(
-					TaskOffloading::ClusterTaskContext *context,
-					DataAccess *access
-					) : DataReleaseStep(access),
-			_remoteTaskIdentifier(context->getRemoteIdentifier()),
-			_offloader(context->getRemoteNode())
+				TaskOffloading::ClusterTaskContext *context,
+				DataAccess *access
+			) : DataReleaseStep(access),
+				_remoteTaskIdentifier(context->getRemoteIdentifier()),
+				_offloader(context->getRemoteNode())
 			{
 				access->setDataReleaseStep(this);
 			}
@@ -271,26 +282,26 @@ namespace ExecutionWorkflow {
 
 			public:
 			ArgoDataLinkStep(
-					MemoryPlace const *sourceMemoryPlace,
-					MemoryPlace const *targetMemoryPlace,
-					DataAccess *access
-					) : DataLinkStep(access),
-			_sourceMemoryPlace(sourceMemoryPlace),
-			_targetMemoryPlace(targetMemoryPlace),
-			_region(access->getAccessRegion()),
-			_task(access->getOriginator()),
-			_read(access->readSatisfied()),
-			_write(access->writeSatisfied())
+				MemoryPlace const *sourceMemoryPlace,
+				MemoryPlace const *targetMemoryPlace,
+				DataAccess *access
+			) : DataLinkStep(access),
+				_sourceMemoryPlace(sourceMemoryPlace),
+				_targetMemoryPlace(targetMemoryPlace),
+				_region(access->getAccessRegion()),
+				_task(access->getOriginator()),
+				_read(access->readSatisfied()),
+				_write(access->writeSatisfied())
 			{
 				access->setDataLinkStep(this);
 			}
 
 			void linkRegion(
-					DataAccessRegion const &region,
-					MemoryPlace const *location,
-					bool read,
-					bool write
-					);
+				DataAccessRegion const &region,
+				MemoryPlace const *location,
+				bool read,
+				bool write
+			);
 
 			//! Start the execution of the Step
 			void start();
@@ -365,17 +376,19 @@ namespace ExecutionWorkflow {
 			// TODO: Use a better Argo detection technique.
 			/* If the memory address belongs to ArgoDSM memory space,
 			 * perform an Argo step instead of a Nanos6 step */
-			if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
-					static_cast<char*>(argo::virtual_memory::start_address()) &&
-					static_cast<char*>(access->getAccessRegion().getStartAddress()) <
-					static_cast<char*>(argo::virtual_memory::start_address()) +
-					argo::virtual_memory::size()
-			   ){
-				return new ArgoAcquireStep(access->getAccessRegion());
-			}else{
-				return new ClusterDataCopyStep(source, target, translation,
-						access->getOriginator(), (objectType == taskwait_type));
+			ConfigVariable<std::string> commType("cluster.communication", "disabled");
+			if(commType.getValue() == "argo"){
+				if (static_cast<char*>(region.getStartAddress()) >=
+						static_cast<char*>(argo::virtual_memory::start_address()) &&
+						static_cast<char*>(region.getStartAddress()) <
+						static_cast<char*>(argo::virtual_memory::start_address()) +
+						argo::virtual_memory::size()
+				   ){
+					return new ArgoAcquireStep(source, target, region);
+				}
 			}
+			return new ClusterDataCopyStep(source, target, translation,
+					access->getOriginator(), (objectType == taskwait_type));
 		}
 		
 		return new Step();
@@ -390,16 +403,18 @@ namespace ExecutionWorkflow {
 		assert(access->getObjectType() == access_type);
 		/* If the memory address belongs to ArgoDSM memory space,
 		 * perform an Argo step instead of a Nanos6 step */
-		if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
-				static_cast<char*>(argo::virtual_memory::start_address()) &&
-				static_cast<char*>(access->getAccessRegion().getStartAddress()) <
-				static_cast<char*>(argo::virtual_memory::start_address()) +
-				argo::virtual_memory::size()
-                ){
-		    return new ArgoDataLinkStep(source, target, access);
-		}else{
-			return new ClusterDataLinkStep(source, target, access);
-        }
+		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+		if(commType.getValue() == "argo"){
+			if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
+					static_cast<char*>(argo::virtual_memory::start_address()) &&
+					static_cast<char*>(access->getAccessRegion().getStartAddress()) <
+					static_cast<char*>(argo::virtual_memory::start_address()) +
+					argo::virtual_memory::size()
+					){
+				return new ArgoDataLinkStep(source, target, access);
+			}
+		}
+		return new ClusterDataLinkStep(source, target, access);
 	}
 	
 	inline Step *clusterCopy(
