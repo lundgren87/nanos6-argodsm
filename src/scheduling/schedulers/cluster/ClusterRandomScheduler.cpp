@@ -13,6 +13,8 @@
 #include <ExecutionWorkflow.hpp>
 #include <VirtualMemoryManagement.hpp>
 
+#include <argo/argo.hpp>
+
 void ClusterRandomScheduler::addReadyTask(Task *task, ComputePlace *computePlace,
 		ReadyTaskHint hint)
 {
@@ -29,7 +31,8 @@ void ClusterRandomScheduler::addReadyTask(Task *task, ComputePlace *computePlace
 	DataAccessRegistration::processAllDataAccesses(task,
 		[&](const DataAccess *access) -> bool {
 			DataAccessRegion region = access->getAccessRegion();
-			if (!VirtualMemoryManagement::isClusterMemory(region)) {
+			if (!VirtualMemoryManagement::isClusterMemory(region) &&
+				!argo::is_argo_address(region.getStartAddress())) {
 				canBeOffloaded = false;
 				return false;
 			}
@@ -51,6 +54,7 @@ void ClusterRandomScheduler::addReadyTask(Task *task, ComputePlace *computePlace
 
 	if (targetNode == _thisNode) {
 		//! Execute task locally
+		printf("Executing task locally.\n");
 		SchedulerInterface::addReadyTask(task, computePlace, hint);
 		return;
 	}
@@ -59,5 +63,6 @@ void ClusterRandomScheduler::addReadyTask(Task *task, ComputePlace *computePlace
 	assert(memoryNode != nullptr);
 
 	//! Offload task
+	printf("Offloading task to Node: %d\n", targetNode->getIndex());
 	ExecutionWorkflow::executeTask(task, targetNode, memoryNode);
 }
