@@ -21,7 +21,8 @@ int ClusterRandomScheduler::getScheduledNode(
 	DataAccessRegistration::processAllDataAccesses(task,
 		[&](const DataAccess *access) -> bool {
 			DataAccessRegion region = access->getAccessRegion();
-			if (!VirtualMemoryManagement::isClusterMemory(region)) {
+			if (!VirtualMemoryManagement::isClusterMemory(region) &&
+				!argo::is_argo_address(region.getStartAddress())) {
 				canBeOffloaded = false;
 				return false;
 			}
