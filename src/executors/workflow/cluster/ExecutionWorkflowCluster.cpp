@@ -352,11 +352,11 @@ namespace ExecutionWorkflow {
 		//! we have to complete a dt (dataTransfer) for this to be safe?
 
 		//! No data transfer needed, data is already here.
-		if (_sourceMemoryPlace == _targetMemoryPlace) {
-			releaseSuccessors();
-			delete this;
-			return;
-		}
+		//if (_sourceMemoryPlace == _targetMemoryPlace) {
+		//	releaseSuccessors();
+		//	delete this;
+		//	return;
+		//}
 
 		Instrument::logMessage(
 			Instrument::ThreadInstrumentationContext::getCurrent(),
@@ -366,8 +366,8 @@ namespace ExecutionWorkflow {
 
 		/* Perform the ArgoDSM acquire or selective_si equivalent */
 		//TODO: Better way of choosing between acquire and selective coherence
-		argo::backend::acquire();
-		//selective_si(_region.getStartAddress(), _region.getSize());
+		//argo::backend::acquire();
+		selective_si(_region.getStartAddress(), _region.getSize());
 
 		releaseSuccessors();
 		delete this;
@@ -383,8 +383,8 @@ namespace ExecutionWorkflow {
 
 		/* Perform the ArgoDSM release or selective_sd equivalent */
 		//TODO: Better way of choosing between release and selective coherence
-		argo::backend::release();
-		//selective_sd(region.getStartAddress(), region.getSize());
+		//argo::backend::release();
+		selective_sd(region.getStartAddress(), region.getSize());
 		//selective_sd_region(region.getStartAddress(), region.getSize());
 
 		TaskOffloading::sendRemoteAccessRelease(_remoteTaskIdentifier,
@@ -425,8 +425,8 @@ namespace ExecutionWorkflow {
 	{
 		/* Perform the ArgoDSM release or selective_sd equivalent */
 		//TODO: Better way of choosing between release and selective coherence
-		argo::backend::release();
-		//selective_sd(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
+		//argo::backend::release();
+		selective_sd(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
 		//selective_sd_region(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
 
 		releaseSuccessors();
@@ -443,8 +443,8 @@ namespace ExecutionWorkflow {
 
 		/* Perform the ArgoDSM release or selective_sd equivalent */
 		//TODO: Better way of choosing between release and selective coherence
-		argo::backend::release();
-		//selective_sd(region.getStartAddress(), region.getSize());
+		//argo::backend::release();
+		selective_sd(region.getStartAddress(), region.getSize());
 		//selective_sd_region(region.getStartAddress(), region.getSize());
 
 		TaskOffloading::SatisfiabilityInfo satInfo(region,
