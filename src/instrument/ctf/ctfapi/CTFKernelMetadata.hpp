@@ -8,12 +8,13 @@
 #define CTF_KERNEL_METADATA_HPP
 
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "CTFTypes.hpp"
 #include "CTFMetadata.hpp"
+#include "CTFTypes.hpp"
 #include "support/config/ConfigVariable.hpp"
 
 namespace CTFAPI {
@@ -29,9 +30,9 @@ namespace CTFAPI {
 		static const char *meta_stream;
 		static const char *meta_event;
 
-		static ConfigVariableList<std::string> _kernelEventPresets;
 		static ConfigVariable<std::string> _kernelEventFile;
-		static ConfigVariableList<std::string> _kernelExcludedEvents;
+		static ConfigVariableSet<std::string> _kernelEventPresets;
+		static ConfigVariableSet<std::string> _kernelExcludedEvents;
 		static std::map<std::string, std::vector<std::string> > _kernelEventPresetMap;
 
 		bool _enabled;

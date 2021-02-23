@@ -60,6 +60,15 @@
 	# Maximum memory that can be used by the runtime. Default is "0", which equals half of system memory
 	max_memory = "0"
 
+[numa]
+	# Enable NUMA tracking of task data. NUMA tracking consists of annotating the NUMA location
+	# of data to be later scheduled based on this information. When using "auto" this feature is
+	# enabled in the first allocation done using the Nanos6 NUMA API. Default is "auto"
+	# Possible values: "auto", "on", "off"
+	tracking = "auto"
+	# Indicate whether should print the NUMA bitmask of each NUMA wildcards
+	report = false
+
 __require_DLB
 [dlb]
 	# Enable DLB support. Default is false
@@ -145,11 +154,11 @@ __require_CTF
 		# Choose the temporary directory where to store intermediate CTF files. Default is none
 		# (not set), which means that $TMPDIR will be used if present, or /tmp otherwise
 		# tmpdir = "/tmp"
-		[instrument.ctf.conversor]
-			# Indicate whether the trace conversor should automatically generate the trace after
+		[instrument.ctf.converter]
+			# Indicate whether the trace converter should automatically generate the trace after
 			# executing a program with CTF instrumentation
 			enabled = true
-			# Indicate the location of the ctf2prv conversor script. Default is none (not set),
+			# Indicate the location of the ctf2prv converter script. Default is none (not set),
 			# which means that the $CTF2PRV will be used if present, or ctf2prv in $PATH
 			# otherwise
 			# location = "path/to/ctf2prv"

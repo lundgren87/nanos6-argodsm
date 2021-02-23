@@ -11,16 +11,16 @@
 #ifndef TASK_IMPLEMENTATION_HPP
 #define TASK_IMPLEMENTATION_HPP
 
+#include <cstring>
+
 #include "StreamExecutor.hpp"
 #include "Task.hpp"
-#include "hardware-counters/HardwareCounters.hpp"
-#include "monitoring/Monitoring.hpp"
+#include "system/TrackingPoints.hpp"
 
 #include <DataAccessRegistration.hpp>
 #include <InstrumentTaskId.hpp>
 #include <TaskDataAccesses.hpp>
 
-#include <cstring>
 
 inline Task::Task(
 	void *argsBlock,
@@ -44,6 +44,7 @@ inline Task::Task(
 	_priority(0),
 	_deadline(0),
 	_schedulingHint(NO_HINT),
+	_NUMAHint((uint64_t)-1),
 	_thread(nullptr),
 	_dataAccesses(taskAccessInfo),
 	_flags(flags),
@@ -114,8 +115,7 @@ inline void Task::reinitialize(
 	}
 
 	// Re-use hardware counters and monitoring statistics
-	HardwareCounters::taskReinitialized(this);
-	Monitoring::taskReinitialized(this);
+	TrackingPoints::taskReinitialized(this);
 }
 
 inline bool Task::markAsFinished(ComputePlace *computePlace)

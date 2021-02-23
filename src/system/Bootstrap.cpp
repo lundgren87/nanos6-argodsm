@@ -25,8 +25,11 @@
 #include "lowlevel/TurboSettings.hpp"
 #include "lowlevel/threads/ExternalThread.hpp"
 #include "lowlevel/threads/ExternalThreadGroup.hpp"
+#include "memory/numa/NUMAManager.hpp"
 #include "monitoring/Monitoring.hpp"
 #include "scheduling/Scheduler.hpp"
+#include "support/config/ConfigCentral.hpp"
+#include "support/config/ConfigChecker.hpp"
 #include "system/APICheck.hpp"
 #include "system/RuntimeInfoEssentials.hpp"
 #include "system/Throttle.hpp"
@@ -57,7 +60,8 @@ void nanos6_register_completion_callback(void (*shutdown_callback)(void *), void
 	ClusterManager::setShutdownCallback(shutdown_callback, callback_args);
 }
 
-void nanos6_preinit(void) {
+void nanos6_preinit(void)
+{
 	if (!nanos6_api_has_been_checked_successfully()) {
 		int *_nanos6_exit_with_error_ptr = (int *) dlsym(nullptr, "_nanos6_exit_with_error");
 		if (_nanos6_exit_with_error_ptr != nullptr) {
@@ -70,6 +74,9 @@ void nanos6_preinit(void) {
 		);
 	}
 
+	// Initialize all runtime options if needed
+	ConfigCentral::initializeOptionsIfNeeded();
+
 	// Enable special flags for turbo mode
 	TurboSettings::initialize();
 
@@ -79,6 +86,8 @@ void nanos6_preinit(void) {
 	HardwareCounters::preinitialize();
 	Monitoring::preinitialize();
 	HardwareInfo::initialize();
+	ConfigCentral::initializeMemoryDependentOptions();
+
 	ClusterManager::initialize();
 	CPUManager::preinitialize();
 
@@ -87,6 +96,7 @@ void nanos6_preinit(void) {
 	Monitoring::initialize();
 	MemoryAllocator::initialize();
 	Throttle::initialize();
+	NUMAManager::initialize();
 	Scheduler::initialize();
 	ExternalThreadGroup::initialize();
 
@@ -112,17 +122,22 @@ void nanos6_preinit(void) {
 
 	CPUManager::initialize();
 	Instrument::nanos6_preinit_finished();
+
+	// Assert config conditions if any
+	ConfigChecker::assertConditions();
 }
 
 
-void nanos6_init(void) {
+void nanos6_init(void)
+{
 	Instrument::threadWillSuspend(mainThread->getInstrumentationId());
 
 	StreamManager::initialize();
 }
 
 
-void nanos6_shutdown(void) {
+void nanos6_shutdown(void)
+{
 	Instrument::threadHasResumed(mainThread->getInstrumentationId());
 	Instrument::threadWillShutdown(mainThread->getInstrumentationId());
 
@@ -130,6 +145,7 @@ void nanos6_shutdown(void) {
 		// Wait for spawned functions to fully end
 	}
 
+	NUMAManager::shutdown();
 	StreamManager::shutdown();
 	LeaderThread::shutdown();
 

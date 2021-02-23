@@ -93,6 +93,9 @@ private:
 	//! Scheduling hint used by the scheduler
 	ReadyTaskHint _schedulingHint;
 
+	//! NUMA Locality scheduling hints
+	uint64_t _NUMAHint;
+
 protected:
 	//! The thread assigned to this task, nullptr if the task has finished (but possibly waiting its children)
 	std::atomic<WorkerThread *> _thread;
@@ -222,7 +225,7 @@ public:
 	}
 
 	//! Check if the task has an actual body
-	inline bool hasCode()
+	inline bool hasCode() const
 	{
 		assert(_taskInfo->implementation_count == 1); // TODO: temporary check for a single implementation
 		assert(_taskInfo != nullptr);
@@ -879,6 +882,20 @@ public:
 	inline int getNestingLevel() const
 	{
 		return _nestingLevel;
+	}
+
+	virtual inline void increaseMaxChildDependencies()
+	{
+	}
+
+	inline void computeNUMAAffinity(ComputePlace *computePlace)
+	{
+		_NUMAHint = _dataAccesses.computeNUMAAffinity(computePlace);
+	}
+
+	inline uint64_t getNUMAHint() const
+	{
+		return _NUMAHint;
 	}
 };
 

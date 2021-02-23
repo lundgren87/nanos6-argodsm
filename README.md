@@ -36,7 +36,7 @@ In addition to the build requirements, the following libraries and tools enable 
 1. [graphviz](http://www.graphviz.org/) and pdfjam or pdfjoin from [TeX](http://www.tug.org/texlive/) to generate graphical representations of the dependency graph
 1. [parallel](https://www.gnu.org/software/parallel/) to generate the graph representation in parallel
 1. [CUDA](https://developer.nvidia.com/cuda-zone) to enable CUDA tasks
-1. [PGI](https://pgroup.com) to enable OpenACC tasks
+1. [PGI or NVIDIA HPC-SDK](https://pgroup.com) to enable OpenACC tasks
 1. [PQOS](https://github.com/intel/intel-cmt-cat) to generate real-time statistics of hardware counters
 1. [DLB](https://pm.bsc.es/dlb) to enable dynamic management and sharing of computing resources
 1. [jemalloc](https://github.com/jemalloc/jemalloc) to use jemalloc as the default memory allocator, providing better performance than the default glibc implementation. Jemalloc must be compiled with `--enable-stats` and `--with-jemalloc-prefix=nanos6_je_` to link with the runtime
@@ -92,7 +92,7 @@ The configure script accepts the following options:
 1. `--with-pqos=prefix` to specify the prefix of the PQoS installation
 1. `--with-cuda[=prefix]` to enable support for CUDA tasks; optionally specify the prefix of the CUDA installation, if needed
 1. `--enable-openacc` to enable support for OpenACC tasks; requires PGI compilers
-1. `--with-pgi=prefix` to specify the prefix of the PGI compilers installation, in case they are not in `$PATH`
+1. `--with-pgi=prefix` to specify the prefix of the PGI or NVIDIA HPC-SDK compilers installation, in case they are not in `$PATH`
 1. `--enable-chrono-arch` to enable an architecture-based timer for the monitoring infrastructure
 1. `--enable-cluster` to enable OmpSs@cluster support
 1. `--with-argodsm=prefix` to enable support for the ArgoDSM shared memory backend
@@ -224,7 +224,7 @@ For details on how to additionally record system-wide Linux Kernel events, pleas
 
 A directory named `trace_<binary_name>_<pid>` will be created at the current working directory at the end of the execution.
 To visualize this trace it needs to be converted to Paraver format first.
-By default, Nanos6 will convert the trace automatically at the end of the execution unless the user explicitly sets the configuration variable `instrument.ctf.conversor.enabled = false`.
+By default, Nanos6 will convert the trace automatically at the end of the execution unless the user explicitly sets the configuration variable `instrument.ctf.converter.enabled = false`.
 The environment variable `CTF2PRV_TIMEOUT=<minutes>` can be set to stop the conversion after the specified elapsed time in minutes.
 Please note that the conversion tool requires python3 and the babeltrace2 packages.
 
@@ -400,21 +400,19 @@ Additionally, checkpointing of predictions is enabled through the `Wisdom` mecha
 
 ## Hardware Counters
 
-Nanos6 offers a real-time API to obtain hardware counter statistics of tasks with various backends. The usage of this API is controlled through the `nanos6_hwcounters.json` configuration file, where backends and counters to be monitored are specified. Currently, Nanos6 supports two backends - `papi` and `pqos` - and a subset of their available counters. All the available backends and counters are listed in the default configuration file, found in the scripts folder. To enable any of these, simply modify the `0` in the field and replace it with a `1`.
+Nanos6 offers an infrastructure to obtain hardware counter statistics of tasks with various backends. The usage of this API is controlled through the Nanos6 configure file. Currently, Nanos6 supports the PAPI, RAPL and PQoS backends.
 
-Next we showcase a simplified version of the configuration file, where the PQoS backend is enabled with a counter that reports the local memory bandwidth and cycles executed of tasks:
-```json
-{
-	"PQOS": {
-		"ENABLED": 1,
-		"PQOS_MON_EVENT_L3_OCCUP": 0,
-		"PQOS_MON_EVENT_LMEM_BW": 1,
-		"PQOS_MON_EVENT_RMEM_BW": 0,
-		"PQOS_PERF_EVENT_LLC_MISS": 0,
-		"PQOS_PERF_EVENT_RETIRED_INSTRUCTIONS": 0,
-		"PQOS_PERF_EVENT_UNHALTED_CYCLES": 1
-	}
-}
+All the available hardware counter backends are listed in the default configuration file, found in the scripts folder. To enable any of these, modify the `false` fields and change them to `true`. Specific counters can be enabled or disabled by adding or removing their name from the list of counters inside each backend subsection.
+
+Next we showcase a simplified version of the hardware counter section of the configure file, where the PAPI backend is enabled with counters that monitor the total number of instructions and cycles, and the PAPI backend is enabled as well:
+
+```toml
+[hardware_counters]
+  [hardware_counters.papi]
+    enabled = true
+    counters = ["PAPI_TOT_INS", "PAPI_TOT_CYC"]
+  [hardware_counters.rapl]
+    enabled = true
 ```
 
 ## Device tasks
@@ -516,3 +514,11 @@ Although the throttle feature is disabled by default, it can be enabled and tunn
 * `throttle.tasks`: Maximum absolute number of alive childs that any task can have. It is divided by 10 at each nesting level. By default is 5.000.000.
 * `throttle.pressure`: Percentage of memory budget used at which point the number of tasks allowed to exist will be decreased linearly until reaching 1 at 100% memory pressure. By default is 70.
 * `throttle.max_memory`: Maximum used memory or memory budget. Note that this variable can be set in terms of bytes or in memory units. For example: ``throttle.max_memory = "50GB"``. The default is the half of the available physical memory.
+
+## NUMA support
+
+Nanos6 includes NUMA support based on three main components: an allocation/deallocation API, a data tracking system and a locality-aware scheduler.
+When allocating memory using the nanos6 NUMA API, we annotate in our directory the location of the data. Then, when a task becomes ready, we check where is each of the data dependences of the task, and schedule the task to be run in the NUMA node with a greater share of its data. The NUMA support can be handled through the `numa.tracking` configuration varible: 
+* `numa.tracking = "on"`: Enables the NUMA support.
+* `numa.tracking = "off"`: Disables the NUMA support.
+* `numa.tracking = "auto"`: The NUMA support is enabled in the first allocation done using the Nanos6 NUMA API. If no allocation is done, the support is never enabled.

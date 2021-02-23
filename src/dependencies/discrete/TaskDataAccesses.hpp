@@ -44,10 +44,10 @@ struct TaskDataAccesses {
 
 	std::atomic<int> _deletableCount;
 	access_map_t *_accessMap;
+	size_t _totalDataSize;
 #ifndef NDEBUG
 	flags_t _flags;
 #endif
-
 
 	TaskDataAccesses() :
 		_subaccessBottomMap(),
@@ -57,7 +57,8 @@ struct TaskDataAccesses {
 		_currentIndex(0),
 		_commutativeMask(0),
 		_deletableCount(0),
-		_accessMap(nullptr)
+		_accessMap(nullptr),
+		_totalDataSize(0)
 #ifndef NDEBUG
 		,
 		_flags()
@@ -72,15 +73,20 @@ struct TaskDataAccesses {
 		_maxDeps(taskAccessInfo.getNumDeps()),
 		_currentIndex(0),
 		_deletableCount(0),
-		_accessMap(nullptr)
+		_accessMap(nullptr),
+		_totalDataSize(0)
 #ifndef NDEBUG
 		,
 		_flags()
 #endif
 	{
+		// Theoretically, 0.75 is a great load factor to prevent frequent rehashes
+		_subaccessBottomMap.max_load_factor(0.75);
 		if (_maxDeps > ACCESS_LINEAR_CUTOFF) {
 			_accessMap = MemoryAllocator::newObject<access_map_t>();
 			assert(_accessMap != nullptr);
+			// Theoretically, 0.75 is a great load factor to prevent frequent rehashes
+			_accessMap->max_load_factor(0.75);
 
 			_accessMap->reserve((_maxDeps != (size_t) -1) ? _maxDeps : ACCESS_LINEAR_CUTOFF);
 		}
@@ -158,6 +164,16 @@ struct TaskDataAccesses {
 		return info.getAllocationSize();
 	}
 
+	inline size_t getTotalDataSize() const
+	{
+		return _totalDataSize;
+	}
+
+	inline void incrementTotalDataSize(size_t size)
+	{
+		_totalDataSize += size;
+	}
+
 	inline DataAccess *allocateAccess(void *address, DataAccessType type, Task *originator, size_t length, bool weak, bool &existing)
 	{
 		if (_accessMap != nullptr) {
@@ -203,6 +219,8 @@ struct TaskDataAccesses {
 
 		return true;
 	}
+
+	uint64_t computeNUMAAffinity(ComputePlace *computePlace);
 };
 
 #endif // TASK_DATA_ACCESSES_HPP

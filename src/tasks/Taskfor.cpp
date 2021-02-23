@@ -7,7 +7,7 @@
 #include "Taskfor.hpp"
 #include "executors/threads/WorkerThread.hpp"
 
-void Taskfor::run(Taskfor &source)
+void Taskfor::run(Taskfor &source, nanos6_address_translation_entry_t *translationTable)
 {
 	assert(getParent()->isTaskfor() && getParent() == &source);
 	assert(getMyChunk() >= 0);
@@ -25,7 +25,7 @@ void Taskfor::run(Taskfor &source)
 	// Compute source taskfor total chunks
 	bounds_t const &sourceBounds = source.getBounds();
 	const size_t totalIterations = sourceBounds.upper_bound - sourceBounds.lower_bound;
-	const size_t totalChunks = ceil(totalIterations, sourceBounds.chunksize);
+	const size_t totalChunks = MathSupport::ceil(totalIterations, sourceBounds.chunksize);
 
 	// Get the arguments and the task information
 	const nanos6_task_info_t &taskInfo = *getTaskInfo();
@@ -35,7 +35,9 @@ void Taskfor::run(Taskfor &source)
 	size_t completedIterations = 0;
 
 	do {
-		taskInfo.implementations[0].run(argsBlock, &_bounds, nullptr);
+		taskInfo.implementations[0].run(argsBlock, &_bounds, translationTable);
+		// Prevent translating twice the addresses because the argsBlock is overwritten
+		translationTable = nullptr;
 
 		completedIterations += myIterations;
 

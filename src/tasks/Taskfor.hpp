@@ -9,6 +9,8 @@
 
 #include <cmath>
 
+#include "support/BitManipulation.hpp"
+#include "support/MathSupport.hpp"
 #include "tasks/Task.hpp"
 #include "tasks/TaskImplementation.hpp"
 
@@ -98,19 +100,19 @@ public:
 
 		if (_bounds.chunksize == 0) {
 			// Just distribute iterations over collaborators if no hint.
-			_bounds.chunksize = std::max(ceil(totalIterations, maxCollaborators), (size_t) 1);
+			_bounds.chunksize = std::max(MathSupport::ceil(totalIterations, maxCollaborators), (size_t) 1);
 		} else {
 			// Distribute iterations over collaborators respecting the "alignment".
 			size_t newChunksize = std::max(totalIterations / maxCollaborators, _bounds.chunksize);
 			size_t alignedChunksize = closestMultiple(newChunksize, _bounds.chunksize);
-			if (ceil(totalIterations, alignedChunksize) < maxCollaborators) {
+			if (MathSupport::ceil(totalIterations, alignedChunksize) < maxCollaborators) {
 				alignedChunksize = std::max(alignedChunksize - _bounds.chunksize, _bounds.chunksize);
 			}
 			assert(alignedChunksize % _bounds.chunksize == 0);
 			_bounds.chunksize = alignedChunksize;
 		}
 
-		size_t totalChunks = ceil(totalIterations, _bounds.chunksize);
+		size_t totalChunks = MathSupport::ceil(totalIterations, _bounds.chunksize);
 		// Each bit of the _pendingChunks var represents a chunk. 1 is pending, 0 is already executed.
 		FatalErrorHandler::failIf(totalChunks > PENDING_CHUNKS_SIZE * NUM_UINT64_BITS, "Too many chunks required.");
 		_remainingChunks.store(totalChunks, std::memory_order_relaxed);
@@ -164,7 +166,7 @@ public:
 		assert(!isRunnable());
 
 		size_t totalIterations = _bounds.upper_bound - _bounds.lower_bound;
-		size_t totalChunks = ceil(totalIterations, _bounds.chunksize);
+		size_t totalChunks = MathSupport::ceil(totalIterations, _bounds.chunksize);
 		int chunkId = -1;
 		size_t fetched = 0;
 
@@ -188,7 +190,7 @@ public:
 				// We use a right rotation to get the first enabled bit starting from cpuId.
 				uint64_t aux = rotateRight(pendingChunks, (cpuId % totalChunks));
 				// Find first set, -1 means no enabled bits at all.
-				int ffs = indexFirstEnabledBit(aux);
+				int ffs = BitManipulation::indexFirstEnabledBit(aux);
 				if (ffs == -1) {
 					break;
 				}
@@ -240,7 +242,7 @@ public:
 		setRunnable(true);
 	}
 
-	inline void body(nanos6_address_translation_entry_t * = nullptr) override
+	inline void body(nanos6_address_translation_entry_t *translationTable) override
 	{
 		assert(hasCode());
 		assert(isRunnable());
@@ -250,7 +252,7 @@ public:
 		assert(parent != nullptr);
 		assert(parent->isTaskfor());
 
-		run(*((Taskfor *)parent));
+		run(*((Taskfor *)parent), translationTable);
 	}
 
 	inline bounds_t &getBounds()
@@ -335,16 +337,11 @@ public:
 	}
 
 private:
-	void run(Taskfor &source);
+	void run(Taskfor &source, nanos6_address_translation_entry_t *translationTable);
 
 	static inline size_t closestMultiple(size_t n, size_t multipleOf)
 	{
 		return ((n + multipleOf - 1) / multipleOf) * multipleOf;
-	}
-
-	static inline size_t ceil(size_t x, size_t y)
-	{
-		return (x+(y-1))/y;
 	}
 
 	// Function to right rotate x by y bits
@@ -352,13 +349,6 @@ private:
 	{
 		y &= 63;
 		return (x >> y) | (x << (-y & 63));
-	}
-
-	// ffs returns the least signficant enabled bit, starting from 1
-	// 0 means x has no enabled bits
-	static inline int indexFirstEnabledBit(uint64_t x)
-	{
-		return __builtin_ffsll(x) - 1;
 	}
 };
 
