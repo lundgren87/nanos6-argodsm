@@ -36,7 +36,7 @@ namespace ClusterMemoryManagement {
 		//! nodes
 		if (isMaster) {
 			// Get communicator type
-			ConfigVariable<std::string> commType("cluster.communication", "disabled");
+			ConfigVariable<std::string> commType("cluster.communication");
 
 			// Allocate ArgoDSM memory if selected
 			if(commType.getValue() == "argo"){
@@ -117,7 +117,7 @@ namespace ClusterMemoryManagement {
 		assert(ptr != nullptr);
 		assert(size > 0);
 		// Get communicator type
-		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+		ConfigVariable<std::string> commType("cluster.communication");
 
 		DataAccessRegion distributedRegion(ptr, size);
 
@@ -177,13 +177,12 @@ namespace ClusterMemoryManagement {
 
 	void *lmalloc(size_t size)
 	{
-		ConfigVariable<std::string> commType("cluster.communication", "disabled");
-		
+		ConfigVariable<std::string> commType("cluster.communication");
 		// Allocate ArgoDSM memory if ArgoDSM is active
 		// TODO: Try to register this as local alloc in the future
 		if(commType.getValue() == "argo"){
 			printf("Allocating %zu ArgoDSM distributed memory (lmalloc).\n", size);
-			return dynamic_alloc(size);
+			return dmalloc(size, nanos6_equpart_distribution, 0, NULL);
 		}else{
 			// Register the lmalloc in the task's dependency system.
 			// This is needed for taskwait noflush, as a place to put the
@@ -201,11 +200,11 @@ namespace ClusterMemoryManagement {
 
 	void lfree(void *ptr, size_t size)
 	{
-		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+		ConfigVariable<std::string> commType("cluster.communication");
 
 		// Free ArgoDSM memory if selected
 		if(commType.getValue() == "argo"){
-			dynamic_free(ptr);
+			dfree(ptr, size);
 		}else{
 			DataAccessRegion allocatedRegion(ptr, size);
 			WorkerThread *currentThread = WorkerThread::getCurrentWorkerThread();
