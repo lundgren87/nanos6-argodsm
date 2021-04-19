@@ -20,6 +20,10 @@ void ConfigCentral::initialize()
 	registerOption<string_t>("cluster.scheduling_policy", "locality");
 	registerOption<integer_t>("cluster.va_start", 0);
 
+	// Argo
+	registerOption<memory_t>("argo.distributed_memory", 1UL << 29);
+	registerOption<memory_t>("argo.cache_size", 1UL << 29);
+
 	// CPU manager
 	registerOption<string_t>("cpumanager.policy", "default");
 

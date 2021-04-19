@@ -376,7 +376,7 @@ namespace ExecutionWorkflow {
 			// TODO: Use a better Argo detection technique.
 			/* If the memory address belongs to ArgoDSM memory space,
 			 * perform an Argo step instead of a Nanos6 step */
-			ConfigVariable<std::string> commType("cluster.communication", "disabled");
+			ConfigVariable<std::string> commType("cluster.communication");
 			if(commType.getValue() == "argo"){
 				if (static_cast<char*>(region.getStartAddress()) >=
 						static_cast<char*>(argo::virtual_memory::start_address()) &&
@@ -403,7 +403,7 @@ namespace ExecutionWorkflow {
 		assert(access->getObjectType() == access_type);
 		/* If the memory address belongs to ArgoDSM memory space,
 		 * perform an Argo step instead of a Nanos6 step */
-		ConfigVariable<std::string> commType("cluster.communication", "disabled");
+		ConfigVariable<std::string> commType("cluster.communication");
 		if(commType.getValue() == "argo"){
 			if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
 					static_cast<char*>(argo::virtual_memory::start_address()) &&
