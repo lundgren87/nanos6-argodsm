@@ -151,12 +151,7 @@ namespace ExecutionWorkflow {
 		/* Check if memory belongs to ArgoDSM and launch relevant ArgoDSM step. */
 		ConfigVariable<std::string> commType("cluster.communication");
 		if(commType.getValue() == "argo"){
-			if (static_cast<char*>(region.getStartAddress()) >=
-					static_cast<char*>(argo::virtual_memory::start_address()) &&
-					static_cast<char*>(region.getStartAddress()) <
-					static_cast<char*>(argo::virtual_memory::start_address()) +
-					argo::virtual_memory::size()
-			   ) {
+			if (argo::is_argo_address(region.getStartAddress())) {
 				if(task->isRemote()) {
 					return new ArgoReleaseStep(
 							task->getClusterContext(),
