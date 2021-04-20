@@ -56,7 +56,7 @@ int ClusterLocalityScheduler::getScheduledNode(
 					if (argo::is_argo_address(subregion.getStartAddress())) {
 						char* startAddress = static_cast<char*>(subregion.getStartAddress());
 						int chunks = 0;
-						size_t chunk_size = argo::get_chunk_size();
+						size_t chunk_size = argo::get_block_size();
 						for(char* addr = startAddress;
 								addr < startAddress+subregion.getSize();
 								addr += chunk_size) {
@@ -81,7 +81,7 @@ int ClusterLocalityScheduler::getScheduledNode(
 				if (argo::is_argo_address(region.getStartAddress())) {
 					char* startAddress = static_cast<char*>(region.getStartAddress());
 					int chunks = 0;
-					size_t chunk_size = argo::get_chunk_size();
+					size_t chunk_size = argo::get_block_size();
 					for(char* addr = startAddress;
 							addr < startAddress+region.getSize();
 							addr += chunk_size) {

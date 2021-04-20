@@ -364,10 +364,9 @@ namespace ExecutionWorkflow {
 			_sourceMemoryPlace->getIndex()
 		);
 
-		/* Perform the ArgoDSM acquire or selective_si equivalent */
-		//TODO: Better way of choosing between acquire and selective coherence
-		//argo::backend::acquire();
-		selective_si(_region.getStartAddress(), _region.getSize());
+		/* Perform the ArgoDSM selective_acquire
+		 * TODO: Enable the possibility to use node-wide acquire */
+		argo::backend::selective_acquire(_region.getStartAddress(), _region.getSize());
 
 		releaseSuccessors();
 		delete this;
@@ -381,11 +380,9 @@ namespace ExecutionWorkflow {
 				Instrument::ThreadInstrumentationContext::getCurrent(),
 				"releasing remote region:", region);
 
-		/* Perform the ArgoDSM release or selective_sd equivalent */
-		//TODO: Better way of choosing between release and selective coherence
-		//argo::backend::release();
-		selective_sd(region.getStartAddress(), region.getSize());
-		//selective_sd_region(region.getStartAddress(), region.getSize());
+		/* Perform the ArgoDSM selective_release
+		 * TODO: Enable the possibility to use node-wide release */
+		argo::backend::selective_release(region.getStartAddress(), region.getSize());
 
 		TaskOffloading::sendRemoteAccessRelease(_remoteTaskIdentifier,
 				_offloader, region, _type, _weak, location);
@@ -423,11 +420,9 @@ namespace ExecutionWorkflow {
 
 	void ArgoReleaseStepLocal::start()
 	{
-		/* Perform the ArgoDSM release or selective_sd equivalent */
-		//TODO: Better way of choosing between release and selective coherence
-		//argo::backend::release();
-		selective_sd(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
-		//selective_sd_region(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
+		/* Perform the ArgoDSM selective_release
+		 * TODO: Enable the possibility to use node-wide release */
+		argo::backend::selective_release(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
 
 		releaseSuccessors();
 	}
@@ -441,11 +436,9 @@ namespace ExecutionWorkflow {
 	) {
 		assert(_targetMemoryPlace != nullptr);
 
-		/* Perform the ArgoDSM release or selective_sd equivalent */
-		//TODO: Better way of choosing between release and selective coherence
-		//argo::backend::release();
-		selective_sd(region.getStartAddress(), region.getSize());
-		//selective_sd_region(region.getStartAddress(), region.getSize());
+		/* Perform the ArgoDSM selective_release
+		 * TODO: Enable the possibility to use node-wide release */
+		argo::backend::selective_release(region.getStartAddress(), region.getSize());
 
 		TaskOffloading::SatisfiabilityInfo satInfo(region,
 				location->getIndex(), read, write);

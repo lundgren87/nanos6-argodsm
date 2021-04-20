@@ -24,8 +24,6 @@
 #include <DataAccessRegistration.hpp>
 
 #include <argo/argo.hpp>
-#include <argo/virtual_memory/virtual_memory.hpp>
-#include <argo/backend/mpi/coherence.hpp>
 
 class ComputePlace;
 class MemoryPlace;
@@ -494,12 +492,7 @@ namespace ExecutionWorkflow {
 			 * perform an Argo step instead of a Nanos6 step */
 			ConfigVariable<std::string> commType("cluster.communication");
 			if(commType.getValue() == "argo"){
-				if (static_cast<char*>(region.getStartAddress()) >=
-						static_cast<char*>(argo::virtual_memory::start_address()) &&
-						static_cast<char*>(region.getStartAddress()) <
-						static_cast<char*>(argo::virtual_memory::start_address()) +
-						argo::virtual_memory::size()
-				   ){
+				if (argo::is_argo_address(region.getStartAddress())) {
 					return new ArgoAcquireStep(source, target, region);
 				}
 			}
@@ -555,13 +548,8 @@ namespace ExecutionWorkflow {
 		 * perform an Argo step instead of a Nanos6 step */
 		ConfigVariable<std::string> commType("cluster.communication");
 		if(commType.getValue() == "argo"){
-			if (static_cast<char*>(access->getAccessRegion().getStartAddress()) >=
-					static_cast<char*>(argo::virtual_memory::start_address()) &&
-					static_cast<char*>(access->getAccessRegion().getStartAddress()) <
-					static_cast<char*>(argo::virtual_memory::start_address()) +
-					argo::virtual_memory::size()
-			   ){
-			return new ArgoDataLinkStep(source, target, access);
+			if (argo::is_argo_address(access->getAccessRegion().getStartAddress())) {
+				return new ArgoDataLinkStep(source, target, access);
 			}
 		}
 		return new ClusterDataLinkStep(source, target, access);
