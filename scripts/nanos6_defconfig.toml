@@ -241,8 +241,8 @@ __require_CLUSTER
 [cluster]
 	# Choose the communication layer to be used for Cluster communication between processes. The
 	# "disabled" value disables the Cluster mode. Default is "disabled"
-	# Possible values: "disabled", "mpi-2sided"
-	communication = "disabled"
+	# Possible values: "disabled", "mpi-2sided", "argodsm"
+	communication = "argodsm"
 	# Choose the distributed memory for Cluster mode. Default is 2GB
 	distributed_memory = "128G"
 	# Choose the local memory for Cluster mode. Default is none (not set), which means that the
@@ -267,6 +267,13 @@ __require_CLUSTER
 		# Decide if mpi messenger must use a different
 		# communicator for data_raws messages. Default is true
 		comm_data_raw = true
+
+[argodsm]
+	# Size of the ArgoDSM distributed memory
+	distributed_memory = "1G"
+	# Size of the ArgoDSM page cache. This is located in DRAM on each node and the size
+	# should be set accordingly. The default is equal to distributed_memory.
+	cache_size = "1G"
 
 __!require_CLUSTER
 

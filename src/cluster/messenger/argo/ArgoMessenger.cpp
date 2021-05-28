@@ -32,9 +32,9 @@ ArgoMessenger::ArgoMessenger()
 	std::size_t distribSize, cacheSize;
 
 	//! Get the requested ArgoDSM distributed memory and cache sizes
-	ConfigVariable<StringifiedMemorySize> distribSizeConfig("argo.distributed_memory");
+	ConfigVariable<StringifiedMemorySize> distribSizeConfig("argodsm.distributed_memory");
 	distribSize = distribSizeConfig.getValue();
-	ConfigVariable<StringifiedMemorySize> cacheSizeConfig("argo.cache_size");
+	ConfigVariable<StringifiedMemorySize> cacheSizeConfig("argodsm.cache_size");
 	cacheSize = cacheSizeConfig.getValue();
 	cacheSize = (cacheSize > 0) ? cacheSize : distribSize;
 

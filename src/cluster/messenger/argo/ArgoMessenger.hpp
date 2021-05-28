@@ -168,7 +168,7 @@ public:
 namespace
 {
 	const bool __attribute__((unused))_registered_argo_msn =
-		Messenger::RegisterMSNClass<ArgoMessenger>("argo");
+		Messenger::RegisterMSNClass<ArgoMessenger>("argodsm");
 }
 
 

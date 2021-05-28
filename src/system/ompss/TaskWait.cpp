@@ -54,7 +54,7 @@ void TaskWait::taskWait(char const *invocationSource, bool fromUserCode, bool no
 		// Ensure ArgoDSM coherence by self-invalidating
 		//TODO Check if we are in cluster and using argo
 		EnvironmentVariable<std::string> commType("NANOS6_COMMUNICATION", "disabled");
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			argo::backend::acquire();
 		}
 
@@ -100,7 +100,7 @@ void TaskWait::taskWait(char const *invocationSource, bool fromUserCode, bool no
 	// Ensure ArgoDSM coherence by self-invalidating
 	//TODO Check if we are in cluster and using argo
 	ConfigVariable<std::string> commType("cluster.communication");
-	if(commType.getValue() == "argo"){
+	if(commType.getValue() == "argodsm"){
 		argo::backend::acquire();
 	}
 

@@ -38,7 +38,7 @@ bool MessageDmalloc::handleMessage()
 		ConfigVariable<std::string> commType("cluster.communication");
 
 		// Allocate ArgoDSM memory if selected
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			printf("Allocating %zu ArgoDSM distributed memory.\n", size);
 			dptr = dynamic_alloc(size);
 		}else{

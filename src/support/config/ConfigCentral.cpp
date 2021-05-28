@@ -31,8 +31,8 @@ void ConfigCentral::initialize()
 
 
 	// Argo
-	registerOption<memory_t>("argo.distributed_memory", 1UL << 29);
-	registerOption<memory_t>("argo.cache_size", 1UL << 29);
+	registerOption<memory_t>("argodsm.distributed_memory", 1UL << 30);
+	registerOption<memory_t>("argodsm.cache_size", 1UL << 30);
 
 	// CPU manager
 	registerOption<string_t>("cpumanager.policy", "default");

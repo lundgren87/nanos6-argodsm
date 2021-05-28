@@ -125,7 +125,7 @@ namespace ExecutionWorkflow {
 		// TODO: Use a better Argo detection technique.
 		/* Check if memory belongs to ArgoDSM and launch relevant ArgoDSM step. */
 		ConfigVariable<std::string> commType("cluster.communication");
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			if(task->isRemoteTask()) {
 				return new ArgoReleaseStep(task->getClusterContext(), task);
 			}else{

@@ -616,7 +616,7 @@ namespace ExecutionWorkflow {
 			/* If the memory address belongs to ArgoDSM memory space,
 			 * perform an Argo step instead of a Nanos6 step */
 			ConfigVariable<std::string> commType("cluster.communication");
-			if(commType.getValue() == "argo"){
+			if(commType.getValue() == "argodsm"){
 				if (argo::is_argo_address(region.getStartAddress())) {
 					return new ArgoAcquireStep(source, target, region);
 				}
@@ -672,7 +672,7 @@ namespace ExecutionWorkflow {
 		/* If the memory address belongs to ArgoDSM memory space,
 		 * perform an Argo step instead of a Nanos6 step */
 		ConfigVariable<std::string> commType("cluster.communication");
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			if (argo::is_argo_address(access->getAccessRegion().getStartAddress())) {
 				return new ArgoDataLinkStep(source, target, access);
 			}

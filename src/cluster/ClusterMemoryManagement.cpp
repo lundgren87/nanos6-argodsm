@@ -39,7 +39,7 @@ namespace ClusterMemoryManagement {
 			ConfigVariable<std::string> commType("cluster.communication");
 
 			// Allocate ArgoDSM memory if selected
-			if(commType.getValue() == "argo"){
+			if(commType.getValue() == "argodsm"){
 				printf("Allocating %zu ArgoDSM distributed memory.\n", size);
 				dptr = dynamic_alloc(size);
 			}else{
@@ -134,7 +134,7 @@ namespace ClusterMemoryManagement {
 		//! We do not need to send any Messages here
 		if (!ClusterManager::inClusterMode()) {
 			// Free ArgoDSM memory if ArgoDSM is active
-			if(commType.getValue() == "argo"){
+			if(commType.getValue() == "argodsm"){
 				dynamic_free(ptr);
 				return;
 			}
@@ -164,7 +164,7 @@ namespace ClusterMemoryManagement {
 		ClusterManager::synchronizeAll();
 
 		// Free ArgoDSM memory if ArgoDSM is active
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			dynamic_free(ptr);
 		}
 		//! TODO: We need to fix the way we allocate distributed memory so that
@@ -180,7 +180,7 @@ namespace ClusterMemoryManagement {
 		ConfigVariable<std::string> commType("cluster.communication");
 		// Allocate ArgoDSM memory if ArgoDSM is active
 		// TODO: Try to register this as local alloc in the future
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			printf("Allocating %zu ArgoDSM distributed memory (lmalloc).\n", size);
 			return dmalloc(size, nanos6_equpart_distribution, 0, NULL);
 		}else{
@@ -203,7 +203,7 @@ namespace ClusterMemoryManagement {
 		ConfigVariable<std::string> commType("cluster.communication");
 
 		// Free ArgoDSM memory if selected
-		if(commType.getValue() == "argo"){
+		if(commType.getValue() == "argodsm"){
 			dfree(ptr, size);
 		}else{
 			DataAccessRegion allocatedRegion(ptr, size);
