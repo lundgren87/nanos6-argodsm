@@ -328,18 +328,46 @@ namespace ExecutionWorkflow {
 	};
 
 	class ArgoReleaseStepLocal : public DataReleaseStep {
-		DataAccess *_dataAccess;
+		//DataAccess *_dataAccess;
 
 		public:
-		ArgoReleaseStepLocal(
-				DataAccess *access
-				) : DataReleaseStep(access),
-		_dataAccess(access)
-		{
-		}
+			ArgoReleaseStepLocal(
+					Task *task
+					) : DataReleaseStep(task)
+			{
+				task->setDataReleaseStep(this);
+			}
 
-		// Overload start with ArgoDSM functionality
-		void start();
+			void addAccess(DataAccess *access)
+			{
+				_bytesToRelease += access->getAccessRegion().getSize();
+			}
+
+			void releaseRegion(
+					DataAccessRegion const &region,
+					WriteID writeID,
+					MemoryPlace const *location) override
+			{
+//				printf("[%d] ArgoReleaseStepLocal(1): Release on addr: %p size: %zu.\n",
+//						nanos6_get_cluster_node_id(),
+//						region.getStartAddress(), region.getSize());
+				/**
+				 * Perform the ArgoDSM selective_release
+				 * TODO: Enable the possibility to use node-wide release
+				 * TODO: Does this need to be outside the if statement?
+				 */
+				argo::backend::selective_release(region.getStartAddress(), region.getSize());
+
+				_bytesToRelease -= region.getSize();
+				if (_bytesToRelease == 0) {
+					delete this;
+				}
+			}
+
+			void start() override
+			{
+				releaseSuccessors();
+			}
 	};
 
 
@@ -352,21 +380,93 @@ namespace ExecutionWorkflow {
 
 		public:
 			ArgoReleaseStep(
-				TaskOffloading::ClusterTaskContext *context,
-				DataAccess *access
-			) : DataReleaseStep(access),
+				TaskOffloading::ClusterTaskContext *context, Task *task
+			) : DataReleaseStep(task),
 				_remoteTaskIdentifier(context->getRemoteIdentifier()),
 				_offloader(context->getRemoteNode())
 			{
-				access->setDataReleaseStep(this);
+				task->setDataReleaseStep(this);
 			}
 
-		void releaseRegion(DataAccessRegion const &region,
-				MemoryPlace const *location);
+			void addAccess(DataAccess *access)
+			{
+				_bytesToRelease += access->getAccessRegion().getSize();
+			}
 
-		bool checkDataRelease(DataAccess const *access);
+			void releaseRegion(
+					DataAccessRegion const &region,
+					WriteID writeID,
+					MemoryPlace const *location) override
+			{
+				/*
+				 * location == nullptr means that the access was propagated in this node's
+				 * namespace rather than being released to the offloader. This means that
+				 * the RELEASE_ACCESS message should not be sent. This function is still
+				 * called so that the workflow step can be deleted once all accesses are
+				 * accounted for.
+				 */
+				if (location != nullptr) {
+					Instrument::logMessage(
+							Instrument::ThreadInstrumentationContext::getCurrent(),
+							"releasing remote region:", region
+							);
 
-		void start();
+//					printf("[%d] ArgoReleaseStep(1): Release on addr: %p size: %zu.\n",
+//							nanos6_get_cluster_node_id(),
+//							region.getStartAddress(), region.getSize());
+					/**
+					 * Perform the ArgoDSM selective_release
+					 * TODO: Enable the possibility to use node-wide release
+					 * TODO: Does this need to be outside the if statement?
+					 */
+					argo::backend::selective_release(region.getStartAddress(), region.getSize());
+
+					TaskOffloading::sendRemoteAccessRelease(
+							_remoteTaskIdentifier, _offloader, region, writeID, location
+							);
+				}
+
+				_bytesToRelease -= region.getSize();
+				if (_bytesToRelease == 0) {
+					delete this;
+				}
+			}
+
+			bool checkDataRelease(DataAccess const *access) override
+			{
+				Task *task = access->getOriginator();
+
+				const bool mustWait = task->mustDelayRelease() && !task->allChildrenHaveFinished();
+
+				const bool releases = ( (access->getObjectType() == taskwait_type) // top level sink
+						|| !access->hasSubaccesses()) // or no fragments (i.e. no subtask to wait for)
+					&& task->hasFinished()     // must have finished; i.e. not taskwait inside task
+					&& access->readSatisfied() && access->writeSatisfied()
+					&& access->getOriginator()->isRemoteTask()  // only offloaded tasks: necessary (e.g. otherwise taskwait on will release)
+					&& access->complete()                       // access must be complete
+					&& !access->hasNext()                       // no next access at the remote side
+					&& !mustWait;
+
+				Instrument::logMessage(
+						Instrument::ThreadInstrumentationContext::getCurrent(),
+						"Checking DataRelease access:", access->getInstrumentationId(),
+						" object_type:", access->getObjectType(),
+						" spawned originator:", access->getOriginator()->isSpawned(),
+						" read:", access->readSatisfied(),
+						" write:", access->writeSatisfied(),
+						" complete:", access->complete(),
+						" has-next:", access->hasNext(),
+						" task finished:", task->hasFinished(),
+						" releases:", releases
+						);
+
+				return releases;
+			}
+
+			void start() override
+			{
+				releaseSuccessors();
+			}
 	};
 
 
@@ -389,31 +489,56 @@ namespace ExecutionWorkflow {
 		//! write satisfiability at creation time
 		bool _write;
 
+		Task *_namespacePredecessor;
+		WriteID _writeID;
+
+		bool _started;
+
 		public:
 		ArgoDataLinkStep(
-				MemoryPlace const *sourceMemoryPlace,
-				MemoryPlace const *targetMemoryPlace,
-				DataAccess *access
-				) : DataLinkStep(access),
-		_sourceMemoryPlace(sourceMemoryPlace),
-		_targetMemoryPlace(targetMemoryPlace),
-		_region(access->getAccessRegion()),
-		_task(access->getOriginator()),
-		_read(access->readSatisfied()),
-		_write(access->writeSatisfied())
+			MemoryPlace const *sourceMemoryPlace,
+			MemoryPlace const *targetMemoryPlace,
+			DataAccess *access
+		) : DataLinkStep(access),
+			_sourceMemoryPlace(sourceMemoryPlace),
+			_targetMemoryPlace(targetMemoryPlace),
+			_region(access->getAccessRegion()),
+			_task(access->getOriginator()),
+			_read(access->readSatisfied()),
+			_write(access->writeSatisfied()),
+			_namespacePredecessor(nullptr),
+			_writeID(access->getWriteID()),
+			_started(false)
 		{
 			access->setDataLinkStep(this);
+
+			assert(targetMemoryPlace->getType() == nanos6_device_t::nanos6_cluster_device);
+			int targetNamespace = targetMemoryPlace->getIndex();
+
+			/* Starting workflow on another node: set the namespace and predecessor task */
+			if (ClusterManager::getDisableRemote()) {
+				_namespacePredecessor = nullptr;
+			} else {
+				if (access->getValidNamespacePrevious() == targetNamespace) {
+					_namespacePredecessor = access->getNamespacePredecessor(); // remote propagation valid if predecessor task and offloading node matches
+				} else {
+					_namespacePredecessor = nullptr;
+				}
+			}
+
+			DataAccessRegistration::setNamespaceSelf(access, targetNamespace);
 		}
 
 		void linkRegion(
 				DataAccessRegion const &region,
 				MemoryPlace const *location,
+				WriteID writeID,
 				bool read,
 				bool write
-				);
+				) override;
 
 		//! Start the execution of the Step
-		void start();
+		void start() override;
 	};
 
 	inline Step *clusterFetchData(

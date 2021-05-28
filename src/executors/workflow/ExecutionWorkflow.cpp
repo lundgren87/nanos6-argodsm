@@ -122,20 +122,14 @@ namespace ExecutionWorkflow {
 
 	DataReleaseStep *WorkflowBase::createDataReleaseStep(Task *task)
 	{
-		DataAccessRegion region = access->getAccessRegion();
 		// TODO: Use a better Argo detection technique.
 		/* Check if memory belongs to ArgoDSM and launch relevant ArgoDSM step. */
 		ConfigVariable<std::string> commType("cluster.communication");
 		if(commType.getValue() == "argo"){
-			if (argo::is_argo_address(region.getStartAddress())) {
-				if(task->isRemote()) {
-					return new ArgoReleaseStep(
-							task->getClusterContext(),
-							access
-							);
-				}else{
-					return new ArgoReleaseStepLocal(access);
-				}
+			if(task->isRemoteTask()) {
+				return new ArgoReleaseStep(task->getClusterContext(), task);
+			}else{
+				return new ArgoReleaseStepLocal(task);
 			}
 		}
 

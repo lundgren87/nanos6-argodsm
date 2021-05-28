@@ -8,27 +8,22 @@
 #include "../DataTransfer.hpp"
 
 class ArgoDataTransfer : public DataTransfer {
-	//! MPI_Request object related with the pending data transfer.
-	MPI_Request *_request;
 	
 public:
 	ArgoDataTransfer(
 		DataAccessRegion const &region,
 		MemoryPlace const *source,
 		MemoryPlace const *target,
-		MPI_Request *request
-	) : DataTransfer(region, source, target), _request(request)
+		MPI_Request *request,
+		int MPISource,
+		int transferId,
+		bool isFetch
+	) : DataTransfer(region, source, target, request, MPISource, transferId, isFetch)
 	{
 	}
 	
 	~ArgoDataTransfer()
 	{
-	}
-	
-	//! \brief Get the MPI_Request object of the MPIDataTransfer
-	inline MPI_Request *getMPIRequest() const
-	{
-		return _request;
 	}
 };
 

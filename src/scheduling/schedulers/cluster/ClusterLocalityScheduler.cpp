@@ -94,7 +94,7 @@ int ClusterLocalityScheduler::getScheduledNode(
 						std::lround(static_cast<double>(nodeId)/static_cast<double>(chunks));
 					bytes[avg_nodeId] += region.getSize();
 				} else {
-					size_t nodeId = getNodeIdForLocation(location);
+					nodeId = getNodeIdForLocation(location);
 
 					bytes[nodeId] += region.getSize();
 				}

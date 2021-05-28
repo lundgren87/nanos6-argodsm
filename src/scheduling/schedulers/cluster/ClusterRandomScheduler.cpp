@@ -11,6 +11,8 @@
 #include <ExecutionWorkflow.hpp>
 #include <VirtualMemoryManagement.hpp>
 
+#include <argo/argo.hpp>
+
 int ClusterRandomScheduler::getScheduledNode(
 	Task *task,
 	ComputePlace *computePlace __attribute__((unused)),

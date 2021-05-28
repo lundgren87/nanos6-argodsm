@@ -1,11 +1,18 @@
+/*
+	This file is part of Nanos6 and is licensed under the terms contained in the COPYING file.
+
+	Copyright (C) 2019-2020 Barcelona Supercomputing Center (BSC)
+*/
+
 #include <cstdlib>
 #include <vector>
 
+#include "InstrumentCluster.hpp"
 #include "ArgoDataTransfer.hpp"
 #include "ArgoMessenger.hpp"
-#include "lowlevel/EnvironmentVariable.hpp"
 #include "cluster/messages/Message.hpp"
-#include "cluster/polling-services/ClusterPollingServices.hpp"
+#include "cluster/polling-services/ClusterServicesPolling.hpp"
+#include "cluster/polling-services/ClusterServicesTask.hpp"
 #include "lowlevel/FatalErrorHandler.hpp"
 #include "lowlevel/mpi/MPIErrorHandler.hpp"
 
@@ -21,7 +28,7 @@
 
 ArgoMessenger::ArgoMessenger()
 {
-	int ret;
+	int ret, ubIsSetFlag;
 	std::size_t distribSize, cacheSize;
 
 	//! Get the requested ArgoDSM distributed memory and cache sizes
@@ -50,23 +57,62 @@ ArgoMessenger::ArgoMessenger()
 	//! make sure the new communicator returns errors
 	ret = MPI_Comm_set_errhandler(INTRA_COMM, MPI_ERRORS_RETURN);
 	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
+	//! make sure the new communicator returns errors
+	ret = MPI_Comm_set_errhandler(INTRA_COMM, MPI_ERRORS_RETURN);
+	MPIErrorHandler::handle(ret, INTRA_COMM);
+
+	ConfigVariable<bool> mpi_comm_data_raw("cluster.mpi.comm_data_raw");
+	_mpi_comm_data_raw = mpi_comm_data_raw.getValue();
+
+	if (_mpi_comm_data_raw) {
+		ret = MPI_Comm_dup(INTRA_COMM, &INTRA_COMM_DATA_RAW);
+		MPIErrorHandler::handle(ret, MPI_COMM_WORLD);
+	} else {
+		INTRA_COMM_DATA_RAW = INTRA_COMM;
+	}
+
 	ret = MPI_Comm_rank(INTRA_COMM, &_wrank);
 	MPIErrorHandler::handle(ret, INTRA_COMM);
 	
 	ret = MPI_Comm_size(INTRA_COMM, &_wsize);
 	MPIErrorHandler::handle(ret, INTRA_COMM);
+
+	//! Get the upper-bound tag supported by current MPI implementation
+	int *mpi_ub_tag = nullptr;
+	ret = MPI_Comm_get_attr(INTRA_COMM, MPI_TAG_UB, &mpi_ub_tag, &ubIsSetFlag);
+	MPIErrorHandler::handle(ret, INTRA_COMM);
+	assert(mpi_ub_tag != nullptr);
+	assert(ubIsSetFlag != 0);
+
+	_mpi_ub_tag = *mpi_ub_tag;
+	assert(_mpi_ub_tag > 0);
 }
 
 ArgoMessenger::~ArgoMessenger()
 {
 	int ret;
-	
+	if (_mpi_comm_data_raw ==  true) {
+#ifndef NDEBUG
+		int compare = 0;
+		ret = MPI_Comm_compare(INTRA_COMM_DATA_RAW, INTRA_COMM, &compare);
+		MPIErrorHandler::handle(ret, MPI_COMM_WORLD);
+		assert(compare !=  MPI_IDENT);
+#endif // NDEBUG
+
+		//! Release the INTRA_COMM_DATA_RAW
+		ret = MPI_Comm_free(&INTRA_COMM_DATA_RAW);
+		MPIErrorHandler::handle(ret, MPI_COMM_WORLD);
+	}
+
 	//! Release the intra-communicator
 	ret = MPI_Comm_free(&INTRA_COMM);
 	MPIErrorHandler::handle(ret, INTRA_COMM);
 
-        argo::finalize();
+	argo::finalize();
+
+	RequestContainer<Message>::clear();
+	RequestContainer<DataTransfer>::clear();
 }
 
 void ArgoMessenger::sendMessage(Message *msg, ClusterNode const *toNode, bool block)
@@ -78,212 +124,220 @@ void ArgoMessenger::sendMessage(Message *msg, ClusterNode const *toNode, bool bl
 	
 	//! At the moment we use the Message id and the Message type to create
 	//! the MPI tag of the communication
-	int tag = (delv->header.id << 8) | delv->header.type;
+	int tag = createTag(delv);
 
 	assert(mpiDst < _wsize && mpiDst != _wrank);
 	assert(delv->header.size != 0);
 	
+	Instrument::clusterSendMessage(msg, mpiDst);
+
 	if (block) {
-		ret = MPI_Send((void *)delv, msgSize, MPI_BYTE, mpiDst,
-				tag, INTRA_COMM);
+		ExtraeLock();
+		ret = MPI_Send((void *)delv, msgSize, MPI_BYTE, mpiDst, tag, INTRA_COMM);
+		ExtraeUnlock();
 		MPIErrorHandler::handle(ret, INTRA_COMM);
-		
-		msg->markAsDelivered();
+
+		// Note: instrument before mark as completed, otherwise possible use-after-free
+		Instrument::clusterSendMessage(msg, -1);
+		msg->markAsCompleted();
 		return;
 	}
 	
-	MPI_Request *request =
-		(MPI_Request *)MemoryAllocator::alloc(
-				sizeof(MPI_Request));
-	FatalErrorHandler::failIf(
-		request == nullptr,
-		"Could not allocate memory for MPI_Request"
-	);
-	
-	ret = MPI_Isend((void *)delv, msgSize, MPI_BYTE, mpiDst,
-			tag, INTRA_COMM, request);
+	MPI_Request *request = (MPI_Request *)MemoryAllocator::alloc(sizeof(MPI_Request));
+	FatalErrorHandler::failIf(request == nullptr, "Could not allocate memory for MPI_Request");
+
+	ExtraeLock();
+	ret = MPI_Isend((void *)delv, msgSize, MPI_BYTE, mpiDst, tag, INTRA_COMM, request);
+	ExtraeUnlock();
+
 	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
 	msg->setMessengerData((void *)request);
-	ClusterPollingServices::addPendingMessage(msg);
+
+	// Note instrument before add as pending, otherwise can be processed and freed => use-after-free
+	Instrument::clusterSendMessage(msg, -1);
+	ClusterPollingServices::PendingQueue<Message>::addPending(msg);
 }
 
-DataTransfer *ArgoMessenger::sendData(const DataAccessRegion &region,
-		const ClusterNode *to, int messageId, bool block)
-{
-	int ret, tag;
+DataTransfer *ArgoMessenger::sendData(
+	const DataAccessRegion &region,
+	const ClusterNode *to,
+	int messageId,
+	bool block,
+	bool instrument
+) {
+	int ret;
 	const int mpiDst = to->getCommIndex();
 	void *address = region.getStartAddress();
-	size_t size = region.getSize();
-	
+
+	const size_t size = region.getSize();
+
 	assert(mpiDst < _wsize && mpiDst != _wrank);
-	
-	tag = (messageId << 8) | DATA_RAW;
-	
+
+	if (instrument) {
+		Instrument::clusterDataSend(address, size, mpiDst, messageId);
+	}
+
+	int tag = getTag(messageId);
+
 	if (block) {
-		ret = MPI_Send(address, size, MPI_BYTE, mpiDst, tag,
-				INTRA_COMM);
-		MPIErrorHandler::handle(ret, INTRA_COMM);
-		
+		ExtraeLock();
+		ret = MPI_Send(address, size, MPI_BYTE, mpiDst, tag, INTRA_COMM_DATA_RAW);
+		ExtraeUnlock();
+		MPIErrorHandler::handle(ret, INTRA_COMM_DATA_RAW);
+
 		return nullptr;
 	}
-	
+
 	MPI_Request *request = (MPI_Request *)MemoryAllocator::alloc(sizeof(MPI_Request));
-	FatalErrorHandler::failIf(
-		request == nullptr,
-		"Could not allocate memory for MPI_Request"
-	);
-	
-	ret = MPI_Isend(address, size, MPI_BYTE, mpiDst, tag, INTRA_COMM,
-			request);
-	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
+	FatalErrorHandler::failIf(request == nullptr, "Could not allocate memory for MPI_Request");
+
+	ExtraeLock();
+	ret = MPI_Isend(address, size, MPI_BYTE, mpiDst, tag, INTRA_COMM_DATA_RAW, request);
+	ExtraeUnlock();
+	MPIErrorHandler::handle(ret, INTRA_COMM_DATA_RAW);
+
+	if (instrument) {
+		Instrument::clusterDataSend(NULL, 0, mpiDst, -1);
+	}
+
 	return new ArgoDataTransfer(region, ClusterManager::getCurrentMemoryNode(),
-			to->getMemoryNode(), request);
+		to->getMemoryNode(), request, mpiDst, messageId, /* isFetch */ false);
 }
 
-DataTransfer *ArgoMessenger::fetchData(const DataAccessRegion &region,
-		const ClusterNode *from, int messageId, bool block)
-{
-	int ret, tag;
+DataTransfer *ArgoMessenger::fetchData(
+	const DataAccessRegion &region,
+	const ClusterNode *from,
+	int messageId,
+	bool block,
+	bool instrument
+) {
+	int ret;
 	const int mpiSrc = from->getCommIndex();
 	void *address = region.getStartAddress();
 	size_t size = region.getSize();
-	
+
 	assert(mpiSrc < _wsize && mpiSrc != _wrank);
-	
-	tag = (messageId << 8) | DATA_RAW;
-	
+
+	int tag = getTag(messageId);
+
 	if (block) {
-		ret = MPI_Recv(address, size, MPI_BYTE, mpiSrc, tag,
-				INTRA_COMM, MPI_STATUS_IGNORE);
-		MPIErrorHandler::handle(ret, INTRA_COMM);
-		
+		ExtraeLock();
+		ret = MPI_Recv(address, size, MPI_BYTE, mpiSrc, tag, INTRA_COMM_DATA_RAW, MPI_STATUS_IGNORE);
+		ExtraeUnlock();
+		MPIErrorHandler::handle(ret, INTRA_COMM_DATA_RAW);
+		if (instrument) {
+			Instrument::clusterDataReceived(address, size, mpiSrc, messageId);
+		}
+
 		return nullptr;
 	}
-	
+
 	MPI_Request *request = (MPI_Request *)MemoryAllocator::alloc(sizeof(MPI_Request));
-	FatalErrorHandler::failIf(
-		request == nullptr,
-		"Could not allocate memory for MPI_Request"
-	);
-	
-	ret = MPI_Irecv(address, size, MPI_BYTE, mpiSrc, tag, INTRA_COMM,
-			request);
-	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
+	FatalErrorHandler::failIf(request == nullptr, "Could not allocate memory for MPI_Request");
+
+	ExtraeLock();
+	ret = MPI_Irecv(address, size, MPI_BYTE, mpiSrc, tag, INTRA_COMM_DATA_RAW, request);
+	ExtraeUnlock();
+
+	MPIErrorHandler::handle(ret, INTRA_COMM_DATA_RAW);
+
 	return new ArgoDataTransfer(region, from->getMemoryNode(),
-			ClusterManager::getCurrentMemoryNode(), request);
+		ClusterManager::getCurrentMemoryNode(), request, mpiSrc, messageId, /* isFetch */ true);
 }
 
 void ArgoMessenger::synchronizeAll(void)
 {
+	ExtraeLock();
 	int ret = MPI_Barrier(INTRA_COMM);
+	ExtraeUnlock();
 	MPIErrorHandler::handle(ret, INTRA_COMM);
 }
 
 Message *ArgoMessenger::checkMail(void)
 {
-	int ret, flag, count, type;
+	int ret, flag, count;
 	MPI_Status status;
-	Message::Deliverable *msg;
-	
+
+	ExtraeLock();
 	ret = MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, INTRA_COMM, &flag, &status);
+	ExtraeUnlock();
 	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
 	if (!flag) {
 		return nullptr;
 	}
-	
+
 	//! DATA_RAW type of messages will be received by matching 'fetchData'
 	//! methods
-	type = status.MPI_TAG & 0xff;
+	const int type = status.MPI_TAG & 0xff;
 	if (type == DATA_RAW) {
+		std::cout << "give up checkMail for DATA_RAW\n";
 		return nullptr;
 	}
-	
+
 	ret = MPI_Get_count(&status, MPI_BYTE, &count);
 	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
-	msg = (Message::Deliverable *)malloc(count);
-	if (!msg) {
+
+	Message::Deliverable *msg = (Message::Deliverable *) malloc(count);
+	if (msg == nullptr) {
 		perror("malloc for message");
 		MPI_Abort(INTRA_COMM, 1);
 	}
-	
+
 	assert(count != 0);
+	ExtraeLock();
 	ret = MPI_Recv((void *)msg, count, MPI_BYTE, status.MPI_SOURCE,
-			status.MPI_TAG, INTRA_COMM, MPI_STATUS_IGNORE);
+		status.MPI_TAG, INTRA_COMM, MPI_STATUS_IGNORE);
+	ExtraeUnlock();
 	MPIErrorHandler::handle(ret, INTRA_COMM);
-	
+
 	return GenericFactory<int, Message*, Message::Deliverable*>::getInstance().create(type, msg);
 }
 
-void ArgoMessenger::testMessageCompletion(
-	std::vector<Message *> &messages
-) {
-	assert(!messages.empty());
-	
-	int msgCount = messages.size(), ret, completedCount;
-	MPI_Request requests[msgCount];
-	int finished[msgCount];
-	MPI_Status status[msgCount];
-	
-	for (int i = 0; i < msgCount; ++i) {
-		Message *msg = messages[i];
-		assert(msg != nullptr);
-		
-		MPI_Request *req =
-			(MPI_Request *)msg->getMessengerData();
-		assert(req != nullptr);
-		
-		requests[i] = *req;
-	}
-	
-	ret = MPI_Testsome(msgCount, requests, &completedCount,
-			finished, status);
-	MPIErrorHandler::handleErrorInStatus(ret, status, completedCount, INTRA_COMM);
-	
-	for (int i = 0; i < completedCount; ++i) {
-		int index = finished[i];
-		Message *msg = messages[index];
-		
-		msg->markAsDelivered();
-		MPI_Request *req = (MPI_Request *)msg->getMessengerData();
-		MemoryAllocator::free(req, sizeof(MPI_Request));
-	}
-}
+template <typename T>
+void ArgoMessenger::testCompletionInternal(std::vector<T *> &pendings)
+{
+	const size_t msgCount = pendings.size();
+	assert(msgCount > 0);
 
-void ArgoMessenger::testDataTransferCompletion(
-	std::vector<DataTransfer *> &transfers
-) {
-	assert(!transfers.empty());
-	
-	int msgCount = transfers.size(), ret, completedCount;
-	MPI_Request requests[msgCount];
-	int finished[msgCount];
-	MPI_Status status[msgCount];
-	
-	for (int i = 0; i < msgCount; ++i) {
-		ArgoDataTransfer *dt = (ArgoDataTransfer *)transfers[i];
-		assert(dt != nullptr);
-		
-		MPI_Request *req = dt->getMPIRequest();
+	int completedCount;
+
+	RequestContainer<T>::reserve(msgCount);
+	assert(RequestContainer<T>::requests != nullptr);
+	assert(RequestContainer<T>::finished != nullptr);
+	assert(RequestContainer<T>::status != nullptr);
+
+	for (size_t i = 0; i < msgCount; ++i) {
+		T *msg = pendings[i];
+		assert(msg != nullptr);
+
+		MPI_Request *req = (MPI_Request *)msg->getMessengerData();
 		assert(req != nullptr);
-		
-		requests[i] = *req;
+
+		RequestContainer<T>::requests[i] = *req;
 	}
-	
-	ret = MPI_Testsome(msgCount, requests, &completedCount, finished,
-			status);
-	MPIErrorHandler::handleErrorInStatus(ret, status, completedCount, INTRA_COMM);
-	
+
+	ExtraeLock();
+	const int ret = MPI_Testsome(
+		(int) msgCount,
+		RequestContainer<T>::requests,
+		&completedCount,
+		RequestContainer<T>::finished,
+		RequestContainer<T>::status
+	);
+	ExtraeUnlock();
+
+	MPIErrorHandler::handleErrorInStatus(ret, RequestContainer<T>::status, completedCount, INTRA_COMM);
+
 	for (int i = 0; i < completedCount; ++i) {
-		int index = finished[i];
-		ArgoDataTransfer *dt = (ArgoDataTransfer *)transfers[index];
-		
-		dt->markAsCompleted();
-		MPI_Request *req = dt->getMPIRequest();
+		const int index = RequestContainer<T>::finished[i];
+		T *msg = pendings[index];
+
+		msg->markAsCompleted();
+		MPI_Request *req = (MPI_Request *) msg->getMessengerData();
 		MemoryAllocator::free(req, sizeof(MPI_Request));
 	}
 }

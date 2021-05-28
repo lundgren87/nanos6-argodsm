@@ -364,6 +364,9 @@ namespace ExecutionWorkflow {
 			_sourceMemoryPlace->getIndex()
 		);
 
+//		printf("[%d] ArgoAcquireStep (1): Acquiring address: %p size: %zu.\n",
+//					nanos6_get_cluster_node_id(),
+//					_region.getStartAddress(), _region.getSize());
 		/* Perform the ArgoDSM selective_acquire
 		 * TODO: Enable the possibility to use node-wide acquire */
 		argo::backend::selective_acquire(_region.getStartAddress(), _region.getSize());
@@ -372,132 +375,148 @@ namespace ExecutionWorkflow {
 		delete this;
 	}
 
-
-	void ArgoReleaseStep::releaseRegion(
-			DataAccessRegion const &region, MemoryPlace const *location
-			) {
-		Instrument::logMessage(
-				Instrument::ThreadInstrumentationContext::getCurrent(),
-				"releasing remote region:", region);
-
-		/* Perform the ArgoDSM selective_release
-		 * TODO: Enable the possibility to use node-wide release */
-		argo::backend::selective_release(region.getStartAddress(), region.getSize());
-
-		TaskOffloading::sendRemoteAccessRelease(_remoteTaskIdentifier,
-				_offloader, region, _type, _weak, location);
-
-		if ((_bytesToRelease -= region.getSize()) == 0) {
-			delete this;
-		}
-	}
-
-	bool ArgoReleaseStep::checkDataRelease(DataAccess const *access)
-	{
-		bool releases = (access->getObjectType() == taskwait_type)
-			&& access->getOriginator()->isSpawned()
-			&& access->readSatisfied()
-			&& access->writeSatisfied();
-
-		Instrument::logMessage(
-				Instrument::ThreadInstrumentationContext::getCurrent(),
-				"Checking DataRelease access:",
-				access->getInstrumentationId(),
-				" object_type:", access->getObjectType(),
-				" spawned originator:", access->getOriginator()->isSpawned(),
-				" read:", access->readSatisfied(),
-				" write:", access->writeSatisfied(),
-				" releases:", releases);
-
-		return releases;
-	}
-
-
-	void ArgoReleaseStep::start()
-	{
-		releaseSuccessors();
-	}
-
-	void ArgoReleaseStepLocal::start()
-	{
-		/* Perform the ArgoDSM selective_release
-		 * TODO: Enable the possibility to use node-wide release */
-		argo::backend::selective_release(_dataAccess->getAccessRegion().getStartAddress(), _dataAccess->getAccessRegion().getSize());
-
-		releaseSuccessors();
-	}
-
-
 	void ArgoDataLinkStep::linkRegion(
 			DataAccessRegion const &region,
 			MemoryPlace const *location,
+			WriteID writeID,
 			bool read,
 			bool write
 	) {
-		assert(_targetMemoryPlace != nullptr);
+		bool deleteStep = false;
+		// This function is occasionally called after creating the
+		// ClusterDataLinkStep (whose constructor sets the data link
+		// step) but before starting the ClusterDataLinkStep. A lock
+		// is required because both functions manipulate _bytesToLink 
+		// and delete the workflow when it reaches zero.
+		{
+			std::lock_guard<SpinLock> guard(_lock);
+			assert(_targetMemoryPlace != nullptr);
 
-		/* Perform the ArgoDSM selective_release
-		 * TODO: Enable the possibility to use node-wide release */
-		argo::backend::selective_release(region.getStartAddress(), region.getSize());
+			int locationIndex;
+			if (location == nullptr) {
+				// The location is only nullptr when write satisfiability
+				// is propagated before read satisfiability, which happens
+				// very rarely. In this case, we send -1 as the location
+				// index.
+				assert(write);
+				assert(!read);
+				locationIndex = -1; // means nullptr
+			} else {
+				if (location->getType() != nanos6_cluster_device) {
+					location = ClusterManager::getCurrentMemoryNode();
+				}
+				locationIndex = location->getIndex();
+			}
 
-		TaskOffloading::SatisfiabilityInfo satInfo(region,
-				location->getIndex(), read, write);
-		TaskOffloading::ClusterTaskContext *clusterTaskContext =
-			_task->getClusterContext();
-		TaskOffloading::sendSatisfiability(_task,
-				clusterTaskContext->getRemoteNode(), satInfo);
-		size_t linkedBytes = region.getSize();
+//			printf("[%d] ArgoDataLinkStep(linkregion 1): Releasing(linking) address: %p size: %zu.\n",
+//						nanos6_get_cluster_node_id(),
+//						region.getStartAddress(), region.getSize());
+			/* Perform the ArgoDSM selective_release
+			 * TODO: Enable the possibility to use node-wide release */
+			argo::backend::selective_release(region.getStartAddress(), region.getSize());
 
-		//! We need to account for linking both read and write
-		//! satisfiability
-		if (read && write) {
-			linkedBytes *= 2;
+			// namespacePredecessor is in principle irrelevant, because it only matters when the
+			// task is created, not when a satisfiability message is sent (which is what is
+			// happening now). Nevertheless, this only happens when propagation does not happen
+			// in the namespace; so send the value nullptr.
+			TaskOffloading::SatisfiabilityInfo satInfo(region, locationIndex, read, write, writeID, /* namespacePredecessor */ nullptr);
+
+			TaskOffloading::ClusterTaskContext *clusterTaskContext = _task->getClusterContext();
+			TaskOffloading::sendSatisfiability(_task, clusterTaskContext->getRemoteNode(), satInfo);
+			size_t linkedBytes = region.getSize();
+
+			//! We need to account for linking both read and write satisfiability
+			if (read && write) {
+				linkedBytes *= 2;
+			}
+			_bytesToLink -= linkedBytes;
+			if (_started && _bytesToLink  == 0) {
+				deleteStep = true;
+			}
 		}
-		if ((_bytesToLink -= linkedBytes) == 0) {
-			delete this;
+		if (deleteStep) {
+
+			/*
+			 * If two tasks A and B are offloaded to the same namespace,
+			 * and A has an in dependency, then at the remote side, read
+			 * satisfiability is propagated from A to B both via the
+			 * offloader's dependency system and via remote propagation in
+			 * the remote namespace (this is the normal optimization from a
+			 * namespace). So task B receives read satisfiability twice.
+			 * This is harmless.  TODO: It would be good to add an
+			 * assertion to make sure that read satisfiability arrives
+			 * twice only in the circumstance described here, but we can no
+			 * longer check what type of dependency the access of task A
+			 * had (in fact the access may already have been deleted). This
+			 * info would have to be added to the UpdateOperation.
+			 *
+			 * This unfortunately messes up the counting of linked bytes.
+			 * The master should be able to figure out when this happens
+			 * and update its own _bytesToLink value accordingly. Or
+			 * maybe there is a way to avoid this happening.
+			 */
+			// delete this;
 		}
 	}
 
 	void ArgoDataLinkStep::start()
 	{
-		assert(_targetMemoryPlace != nullptr);
+		bool deleteStep = false;
+		{
+			// Get a lock (see comment in ClusterDataLinkStep::linkRegion).
+			std::lock_guard<SpinLock> guard(_lock);
+			assert(_targetMemoryPlace != nullptr);
 
-		if (!_read && !_write) {
-			//! Nothing to do here. We can release the execution
-			//! step. Location will be linked later on.
+			int location = -1;
+			if (_read || _write) {
+				assert(_sourceMemoryPlace != nullptr);
+				location = _sourceMemoryPlace->getIndex();
+			}
+			Instrument::logMessage(
+					Instrument::ThreadInstrumentationContext::getCurrent(),
+					"ArgoDataLinkStep for MessageTaskNew. ",
+					"Current location of ", _region,
+					" Node:", location
+			);
+
+			//! The current node is the source node. We just propagate
+			//! the info we 've gathered
+			assert(_successors.size() == 1);
+			ClusterExecutionStep *execStep = dynamic_cast<ClusterExecutionStep *>(_successors[0]);
+			assert(execStep != nullptr); // This asserts that the next step is the execution step
+
+			// assert(_read || _write);
+
+			// This assert is to prevent future errors when working with maleability.
+			// For now the index and the comIndex are the same. A more complete implementation
+			// Will have a pointer in ClusterMemoryNode to the ClusterNode and will get the
+			// Commindex from there with getCommIndex.
+			// assert(_sourceMemoryPlace->getIndex() == _sourceMemoryPlace->getCommIndex());
+			execStep->addDataLink(location, _region, _writeID, _read, _write, (void *)_namespacePredecessor);
+
+//			printf("[%d] ArgoDataLinkStep(start 1): Releasing(linking) address: %p size: %zu.\n",
+//						nanos6_get_cluster_node_id(),
+//						_region.getStartAddress(), _region.getSize());
+			/* Perform the ArgoDSM selective_release
+			 * TODO: Enable the possibility to use node-wide release */
+			argo::backend::selective_release(_region.getStartAddress(), _region.getSize());
+
+			const size_t linkedBytes = _region.getSize();
+			//! If at the moment of offloading the access is not both
+			//! read and write satisfied, then the info will be linked
+			//! later on. In this case, we just account for the bytes that
+			//! we link now, the Step will be deleted when all the bytes
+			//! are linked through linkRegion method invocation
+			if (_read && _write) {
+				deleteStep = true;
+			} else {
+				_bytesToLink -= linkedBytes;
+				_started = true;
+			}
+
+			// Release successors before releasing the lock (otherwise
+			// ClusterDataLinkStep::linkRegion may delete this step first).
 			releaseSuccessors();
-			return;
-		}
-
-		assert(_sourceMemoryPlace != nullptr);
-		Instrument::logMessage(
-				Instrument::ThreadInstrumentationContext::getCurrent(),
-				"ArgoDataLinkStep for MessageTaskNew. ",
-				"Current location of ", _region,
-				" Node:", _sourceMemoryPlace->getIndex()
-				);
-
-		//! The current node is the source node. We just propagate
-		//! the info we 've gathered
-		assert(_successors.size() == 1);
-		ClusterExecutionStep *execStep =
-			(ClusterExecutionStep *)_successors[0];
-
-		assert(_read || _write);
-		execStep->addDataLink(_sourceMemoryPlace->getIndex(),
-				_region, _read, _write);
-
-		releaseSuccessors();
-		size_t linkedBytes = _region.getSize();
-		//! If at the moment of offloading the access is not both
-		//! read and write satisfied, then the info will be linked
-		//! later on. In this case, we just account for the bytes that
-		//! we link now, the Step will be deleted when all the bytes
-		//! are linked through linkRegion method invocation
-		if (_read && _write) {
-			delete this;
-		} else {
-			_bytesToLink -= linkedBytes;
 		}
 	}
 };
